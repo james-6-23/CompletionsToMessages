@@ -92,14 +92,14 @@ export function RequestLogTable({ timeRange, refreshMs, endpoints }: Props) {
     }).catch(() => {});
   }, []);
 
-  const daysMap: Record<string, number> = { '1h': 1, '6h': 1, '1d': 1, '7d': 7, '30d': 30 };
-  const days = daysMap[timeRange] ?? 1;
+  const hoursMap: Record<string, number> = { '1h': 1, '6h': 6, '1d': 24, '7d': 168, '30d': 720 };
+  const hours = hoursMap[timeRange] ?? 24;
   const statusCode = statusFilter !== 'all' ? Number(statusFilter) : undefined;
   const model = modelFilter.trim() || undefined;
   const channelId = channelFilter !== 'all' ? channelFilter : undefined;
 
   const { data, loading } = useRequestLogs(
-    { page, pageSize: PAGE_SIZE, statusCode, model, days, channelId },
+    { page, pageSize: PAGE_SIZE, statusCode, model, hours, channelId },
     refreshMs,
   );
 
@@ -117,9 +117,29 @@ export function RequestLogTable({ timeRange, refreshMs, endpoints }: Props) {
     return 'hsl(0 84% 60% / 0.1)';
   }
 
-  function getChannelName(id: string): string {
-    if (!id) return '-';
-    return endpoints.find(e => e.id === id)?.name || id.slice(0, 8);
+  // 渠道颜色方案（根据名称哈希分配）
+  const CHANNEL_COLORS = [
+    { bg: 'bg-blue-500/10', text: 'text-blue-700 dark:text-blue-400', border: 'border-blue-500/20' },
+    { bg: 'bg-emerald-500/10', text: 'text-emerald-700 dark:text-emerald-400', border: 'border-emerald-500/20' },
+    { bg: 'bg-violet-500/10', text: 'text-violet-700 dark:text-violet-400', border: 'border-violet-500/20' },
+    { bg: 'bg-amber-500/10', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-500/20' },
+    { bg: 'bg-rose-500/10', text: 'text-rose-700 dark:text-rose-400', border: 'border-rose-500/20' },
+    { bg: 'bg-cyan-500/10', text: 'text-cyan-700 dark:text-cyan-400', border: 'border-cyan-500/20' },
+    { bg: 'bg-orange-500/10', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-500/20' },
+    { bg: 'bg-pink-500/10', text: 'text-pink-700 dark:text-pink-400', border: 'border-pink-500/20' },
+    { bg: 'bg-indigo-500/10', text: 'text-indigo-700 dark:text-indigo-400', border: 'border-indigo-500/20' },
+    { bg: 'bg-teal-500/10', text: 'text-teal-700 dark:text-teal-400', border: 'border-teal-500/20' },
+  ];
+
+  function getChannelInfo(id: string) {
+    if (!id) return { name: '-', color: CHANNEL_COLORS[0], logoUrl: '' };
+    const ep = endpoints.find(e => e.id === id);
+    const name = ep?.name || id.slice(0, 8);
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    const color = CHANNEL_COLORS[Math.abs(hash) % CHANNEL_COLORS.length];
+    const logoUrl = ep?.logo_url || '';
+    return { name, color, logoUrl };
   }
 
   return (
@@ -195,16 +215,24 @@ export function RequestLogTable({ timeRange, refreshMs, endpoints }: Props) {
                 <TableRow key={log.request_id}>
                   <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{fmtTimestamp(log.created_at)}</TableCell>
                   <TableCell className="text-xs">
-                    <span className="inline-flex items-center gap-1">
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium truncate max-w-[120px]">
-                        {getChannelName(log.channel_id)}
-                      </span>
-                      {log.key_id && keyIndexMap[log.key_id] && (
-                        <span className="inline-flex items-center px-1 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono text-[10px] font-bold">
-                          #{keyIndexMap[log.key_id]}
+                    {(() => {
+                      const ch = getChannelInfo(log.channel_id);
+                      return (
+                        <span className="inline-flex items-center gap-1">
+                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-semibold truncate max-w-[140px] ${ch.color.bg} ${ch.color.text} ${ch.color.border}`}>
+                            {ch.logoUrl && (
+                              <img src={ch.logoUrl} alt="" className="h-3.5 w-3.5 object-contain rounded-sm shrink-0" />
+                            )}
+                            {ch.name}
+                          </span>
+                          {log.key_id && keyIndexMap[log.key_id] && (
+                            <span className="inline-flex items-center px-1 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono text-[10px] font-bold">
+                              #{keyIndexMap[log.key_id]}
+                            </span>
+                          )}
                         </span>
-                      )}
-                    </span>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell><ModelBadge model={log.model} /></TableCell>
                   <TableCell className="text-right tabular-nums text-sm">{fmtInt(log.input_tokens)}</TableCell>

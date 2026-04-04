@@ -92,6 +92,7 @@ export const api = {
     status_code?: number;
     model?: string;
     days?: number;
+    hours?: number;
     channel_id?: string;
   }) => {
     const sp = new URLSearchParams();
@@ -99,7 +100,8 @@ export const api = {
     if (params.page_size) sp.set('page_size', String(params.page_size));
     if (params.status_code) sp.set('status_code', String(params.status_code));
     if (params.model) sp.set('model', params.model);
-    if (params.days) sp.set('days', String(params.days));
+    if (params.hours) sp.set('hours', String(params.hours));
+    else if (params.days) sp.set('days', String(params.days));
     if (params.channel_id) sp.set('channel_id', params.channel_id);
     return fetchJson<PaginatedLogs>(`${BASE}/api/stats/logs?${sp}`);
   },

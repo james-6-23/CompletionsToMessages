@@ -59,7 +59,7 @@ export function useModelStats(days: number, refreshMs: number) {
   return { data, loading };
 }
 
-export function useRequestLogs(params: { page: number; pageSize: number; statusCode?: number; model?: string; days: number; channelId?: string }, refreshMs: number) {
+export function useRequestLogs(params: { page: number; pageSize: number; statusCode?: number; model?: string; days?: number; hours?: number; channelId?: string }, refreshMs: number) {
   const [data, setData] = useState<PaginatedLogs | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -72,6 +72,7 @@ export function useRequestLogs(params: { page: number; pageSize: number; statusC
         status_code: params.statusCode,
         model: params.model,
         days: params.days,
+        hours: params.hours,
         channel_id: params.channelId,
       }).then(setData).catch(console.error).finally(() => setLoading(false));
     refresh();
@@ -79,7 +80,7 @@ export function useRequestLogs(params: { page: number; pageSize: number; statusC
       const timer = setInterval(refresh, refreshMs);
       return () => clearInterval(timer);
     }
-  }, [params.page, params.pageSize, params.statusCode, params.model, params.days, params.channelId, refreshMs]);
+  }, [params.page, params.pageSize, params.statusCode, params.model, params.days, params.hours, params.channelId, refreshMs]);
 
   return { data, loading };
 }

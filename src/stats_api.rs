@@ -33,6 +33,7 @@ pub struct LogsParam {
     pub status_code: Option<u16>,
     pub model: Option<String>,
     pub days: Option<u32>,
+    pub hours: Option<u32>,
     pub channel_id: Option<String>,
 }
 
@@ -105,7 +106,7 @@ pub async fn get_models(
     State(state): State<AppState>,
     Query(params): Query<DaysParam>,
 ) -> Result<Json<Value>, ProxyError> {
-    let (start_ts, end_ts) = time_range_from_params(None, None, params.days);
+    let (start_ts, end_ts) = time_range_from_params(None, params.hours, params.days);
     let db = Arc::clone(&state.db);
 
     let stats = tokio::task::spawn_blocking(move || db.get_model_stats(start_ts, end_ts))
@@ -123,7 +124,7 @@ pub async fn get_logs(
 ) -> Result<Json<Value>, ProxyError> {
     let page = params.page.unwrap_or(1).max(1);
     let page_size = params.page_size.unwrap_or(20).min(100);
-    let (start_ts, end_ts) = time_range_from_params(None, None, params.days);
+    let (start_ts, end_ts) = time_range_from_params(None, params.hours, params.days);
     let status_code = params.status_code;
     let model = params.model.clone();
     let channel_id = params.channel_id.clone();

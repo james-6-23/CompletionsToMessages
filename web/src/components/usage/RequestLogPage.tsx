@@ -14,7 +14,7 @@ const REFRESH_OPTIONS = [
 ];
 
 export function RequestLogPage() {
-  const [timeRange, setTimeRange] = useState<TimeRange>('1d');
+  const [timeRange, setTimeRange] = useState<TimeRange>('1h');
   const [refreshIdx, setRefreshIdx] = useState(3);
   const refreshMs = REFRESH_OPTIONS[refreshIdx].value;
   const { data: endpoints } = useEndpoints();
