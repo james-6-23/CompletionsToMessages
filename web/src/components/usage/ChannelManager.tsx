@@ -8,7 +8,7 @@ import { toast } from '@/components/Toast';
 import type { ApiKey, Endpoint } from '@/types/usage';
 import {
   Plus, Trash2, Eye, EyeOff, Copy, FlaskConical, Check, X,
-  Loader2, KeyRound, Globe, Pencil, Zap, Files,
+  Loader2, KeyRound, Globe, Pencil, Zap, Files, Wifi,
   Search, MoreHorizontal, MinusCircle, Download, RotateCcw,
 } from 'lucide-react';
 import { fmtTimestamp } from './format';
@@ -283,6 +283,20 @@ function ChannelDetailPanel({
   const [editProxy, setEditProxy] = useState(endpoint.proxy_url || '');
   const [saving, setSaving] = useState(false);
   const [testingProxy, setTestingProxy] = useState(false);
+
+  /* 代理出口 IP 展示 */
+  const [proxyIp, setProxyIp] = useState<string | null>(null);
+  const [testingProxyIp, setTestingProxyIp] = useState(false);
+
+  useEffect(() => {
+    setProxyIp(null);
+    if (endpoint.proxy_url) {
+      setTestingProxyIp(true);
+      api.testProxy(endpoint.proxy_url).then(res => {
+        if (res.ok && res.ip) setProxyIp(res.ip);
+      }).catch(() => {}).finally(() => setTestingProxyIp(false));
+    }
+  }, [endpoint.id, endpoint.proxy_url]);
 
   /* 添加密钥弹窗 */
   const [showAddKey, setShowAddKey] = useState(false);
@@ -606,6 +620,42 @@ function ChannelDetailPanel({
               <Globe className="h-3.5 w-3.5" />
               官网
             </a>
+          )}
+          {endpoint.proxy_url && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/60 px-2.5 py-1 rounded-lg font-mono">
+              {testingProxyIp ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : proxyIp ? (
+                <>{proxyIp}</>
+              ) : (
+                <>代理</>
+              )}
+              <button
+                className="p-0.5 rounded hover:bg-muted transition-colors disabled:opacity-50"
+                disabled={testingProxyIp}
+                title="测试代理"
+                onClick={async () => {
+                  setTestingProxyIp(true);
+                  try {
+                    const res = await api.testProxy(endpoint.proxy_url);
+                    if (res.ok) {
+                      setProxyIp(res.ip || null);
+                      toast(`延迟 ${res.latency_ms}ms｜${res.location}｜IP ${res.ip}`, 'success');
+                    } else {
+                      setProxyIp(null);
+                      toast(res.error || '代理测试失败', 'error');
+                    }
+                  } catch {
+                    setProxyIp(null);
+                    toast('代理测试请求失败', 'error');
+                  } finally {
+                    setTestingProxyIp(false);
+                  }
+                }}
+              >
+                <Wifi className="h-3.5 w-3.5" />
+              </button>
+            </span>
           )}
         </div>
 
