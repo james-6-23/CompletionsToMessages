@@ -83,6 +83,7 @@ export interface Endpoint {
   base_url: string;
   is_active: boolean;
   key_count: number;
+  models: string[];
   created_at: number;
 }
 

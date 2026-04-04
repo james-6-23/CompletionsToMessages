@@ -204,6 +204,39 @@ function KeyCard({
 }
 
 /* ------------------------------------------------------------------ */
+/*  同步模型按钮                                                        */
+/* ------------------------------------------------------------------ */
+
+function SyncModelsButton({ endpointId, onSynced }: { endpointId: string; onSynced: () => void }) {
+  const [syncing, setSyncing] = useState(false);
+
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      const result = await api.syncEndpointModels(endpointId);
+      toast(`已同步 ${result.count} 个模型`);
+      onSynced();
+    } catch (e) {
+      console.error('同步模型列表失败:', e);
+      toast('同步失败', 'error');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={handleSync}
+      disabled={syncing}
+      className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
+    >
+      {syncing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+      {syncing ? '同步中...' : '从上游同步'}
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  右侧详情面板                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -486,14 +519,34 @@ function ChannelDetailPanel({
           详细信息
         </button>
         {showDetails && (
-          <div className="px-6 pb-4 space-y-2 text-sm text-muted-foreground">
+          <div className="px-6 pb-4 space-y-3 text-sm text-muted-foreground">
             <div className="flex gap-8">
               <span>活跃密钥: <strong className="text-emerald-500">{activeCount}</strong> / {totalKeys}</span>
               <span>总请求: <strong className="text-foreground">{req24h.toLocaleString()}</strong></span>
               <span>总失败: <strong className="text-red-500">{failedTotal}</strong></span>
             </div>
+
+            {/* 支持的模型列表 */}
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium">支持的模型:</span>
+                <SyncModelsButton endpointId={endpoint.id} onSynced={onRefresh} />
+              </div>
+              {endpoint.models.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {endpoint.models.map(m => (
+                    <span key={m} className="inline-flex items-center px-2 py-0.5 rounded-md bg-muted text-xs font-mono text-foreground">
+                      {m}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">未同步（不限模型，所有请求都会路由到此渠道）</p>
+              )}
+            </div>
+
             {/* 测试模型选择 */}
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex items-center gap-3 pt-1">
               <span className="text-xs font-medium text-muted-foreground shrink-0">测试模型:</span>
               <Select value={testModel || undefined} onValueChange={setTestModel} onOpenChange={o => { if (o && models.length === 0) fetchModels(); }}>
                 <SelectTrigger className="w-60 h-7 text-xs">

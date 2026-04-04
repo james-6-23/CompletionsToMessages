@@ -159,9 +159,9 @@ pub async fn handle_messages(
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
         }
 
-        // 每次尝试都选取新密钥
+        // 每次尝试都选取新密钥（按请求模型筛选渠道）
         let (key_id, api_key, upstream_base, channel_id) =
-            state.key_pool.next_key(token_for_pool).await?;
+            state.key_pool.next_key(token_for_pool, Some(&actual_model)).await?;
 
         last_key_id = key_id.clone();
         last_channel_id = channel_id.clone();
@@ -515,9 +515,9 @@ pub async fn handle_models(
     let matched_token = auth::validate_auth(&headers, &state.db, &state.config.auth_token)?;
     let token_for_pool = matched_token.as_deref().unwrap_or("");
 
-    // 选取一个可用 key 获取上游 URL
+    // 选取一个可用 key 获取上游 URL（模型列表请求不按模型筛选）
     let (_key_id, api_key, upstream_base, _channel_id) =
-        state.key_pool.next_key(token_for_pool).await?;
+        state.key_pool.next_key(token_for_pool, None).await?;
 
     let models_url = format!(
         "{}/v1/models",
@@ -566,7 +566,7 @@ pub async fn handle_models(
 }
 
 /// 判断模型 ID 是否为 Claude 系列
-fn is_claude_model(model_id: &str) -> bool {
+pub fn is_claude_model(model_id: &str) -> bool {
     let id = model_id.to_lowercase();
     id.contains("claude")
         || id.starts_with("anthropic/")

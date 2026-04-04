@@ -101,6 +101,7 @@ pub struct EndpointRow {
     pub base_url: String,
     pub is_active: bool,
     pub key_count: u64,
+    pub models: Vec<String>,
     pub created_at: i64,
 }
 
@@ -125,6 +126,8 @@ pub struct ActiveKey {
     pub api_key: String,
     pub endpoint_id: String,
     pub base_url: String,
+    /// 端点支持的模型列表（空 = 不限制，支持所有模型）
+    pub endpoint_models: Vec<String>,
 }
 
 /// 访问密钥行（对外展示，token 脱敏）
@@ -227,6 +230,28 @@ impl Database {
                 created_at INTEGER NOT NULL
             );"
         ).map_err(|e| format!("创建 upstream_endpoints 表失败: {e}"))?;
+
+        // 迁移：为 upstream_endpoints 添加 models 列（JSON 数组）
+        {
+            let has_col: bool = conn
+                .prepare("PRAGMA table_info(upstream_endpoints)")
+                .and_then(|mut stmt| {
+                    let names: Vec<String> = stmt
+                        .query_map([], |row| row.get::<_, String>(1))
+                        .unwrap()
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    Ok(names.contains(&"models".to_string()))
+                })
+                .unwrap_or(false);
+
+            if !has_col {
+                conn.execute_batch(
+                    "ALTER TABLE upstream_endpoints ADD COLUMN models TEXT NOT NULL DEFAULT '[]';"
+                ).map_err(|e| format!("迁移 upstream_endpoints 添加 models 列失败: {e}"))?;
+                log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 models 列");
+            }
+        }
 
         // 创建 API 密钥管理表（含 endpoint_id 外键）
         conn.execute_batch(
@@ -812,18 +837,22 @@ impl Database {
         let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT e.id, e.name, e.base_url, e.is_active, e.created_at,
-                    (SELECT COUNT(*) FROM api_keys k WHERE k.endpoint_id = e.id) as key_count
+                    (SELECT COUNT(*) FROM api_keys k WHERE k.endpoint_id = e.id) as key_count,
+                    e.models
             FROM upstream_endpoints e
             ORDER BY e.created_at ASC"
         ).map_err(|e| format!("准备端点查询失败: {e}"))?;
 
         let rows = stmt.query_map([], |row| {
+            let models_json: String = row.get::<_, String>(6).unwrap_or_else(|_| "[]".to_string());
+            let models: Vec<String> = serde_json::from_str(&models_json).unwrap_or_default();
             Ok(EndpointRow {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 base_url: row.get(2)?,
                 is_active: row.get::<_, i32>(3)? != 0,
                 key_count: row.get::<_, i64>(5)? as u64,
+                models,
                 created_at: row.get(4)?,
             })
         }).map_err(|e| format!("查询端点失败: {e}"))?;
@@ -852,6 +881,7 @@ impl Database {
             base_url: base_url.to_string(),
             is_active: true,
             key_count: 0,
+            models: vec![],
             created_at,
         })
     }
@@ -899,6 +929,18 @@ impl Database {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(format!("查询端点 URL 失败: {e}")),
         }
+    }
+
+    /// 更新端点支持的模型列表
+    pub fn update_endpoint_models(&self, id: &str, models: &[String]) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let models_json = serde_json::to_string(models)
+            .map_err(|e| format!("序列化模型列表失败: {e}"))?;
+        conn.execute(
+            "UPDATE upstream_endpoints SET models = ?1 WHERE id = ?2",
+            params![models_json, id],
+        ).map_err(|e| format!("更新端点模型列表失败: {e}"))?;
+        Ok(())
     }
 
     // ===== API Key 管理方法 =====
@@ -1025,7 +1067,7 @@ impl Database {
     pub fn get_all_active_keys(&self) -> Result<Vec<ActiveKey>, String> {
         let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT k.id, k.api_key, k.endpoint_id, e.base_url
+            "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models
             FROM api_keys k
             INNER JOIN upstream_endpoints e ON k.endpoint_id = e.id
             WHERE k.is_active = 1 AND e.is_active = 1
@@ -1033,11 +1075,14 @@ impl Database {
         ).map_err(|e| format!("准备活跃密钥查询失败: {e}"))?;
 
         let rows = stmt.query_map([], |row| {
+            let models_json: String = row.get::<_, String>(4).unwrap_or_else(|_| "[]".to_string());
+            let endpoint_models: Vec<String> = serde_json::from_str(&models_json).unwrap_or_default();
             Ok(ActiveKey {
                 id: row.get(0)?,
                 api_key: row.get(1)?,
                 endpoint_id: row.get(2)?,
                 base_url: row.get(3)?,
+                endpoint_models,
             })
         }).map_err(|e| format!("查询活跃密钥失败: {e}"))?;
 
@@ -1272,7 +1317,7 @@ impl Database {
     pub fn get_active_keys_for_token(&self, token: &str) -> Result<Vec<ActiveKey>, String> {
         let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT k.id, k.api_key, k.endpoint_id, e.base_url
+            "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models
             FROM api_keys k
             INNER JOIN upstream_endpoints e ON k.endpoint_id = e.id
             INNER JOIN access_token_channels atc ON atc.channel_id = e.id
@@ -1282,11 +1327,14 @@ impl Database {
         ).map_err(|e| format!("准备 token 关联活跃密钥查询失败: {e}"))?;
 
         let rows = stmt.query_map(params![token], |row| {
+            let models_json: String = row.get::<_, String>(4).unwrap_or_else(|_| "[]".to_string());
+            let endpoint_models: Vec<String> = serde_json::from_str(&models_json).unwrap_or_default();
             Ok(ActiveKey {
                 id: row.get(0)?,
                 api_key: row.get(1)?,
                 endpoint_id: row.get(2)?,
                 base_url: row.get(3)?,
+                endpoint_models,
             })
         }).map_err(|e| format!("查询 token 关联活跃密钥失败: {e}"))?;
 

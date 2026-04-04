@@ -123,6 +123,7 @@ export const api = {
   deleteEndpoint: (id: string) => deleteJson<{ ok: boolean }>(`/api/endpoints/${id}`),
   toggleEndpoint: (id: string, is_active: boolean) => putJson<{ ok: boolean }>(`/api/endpoints/${id}/status`, { is_active }),
   getEndpointModels: (id: string) => fetchJson<{ data: { id: string }[] }>(`/api/endpoints/${id}/models`),
+  syncEndpointModels: (id: string) => postJson<{ ok: boolean; models: string[]; count: number }>(`/api/endpoints/${id}/sync-models`, {}),
 
   // 访问密钥
   listAccessTokens: () => fetchJson<AccessToken[]>('/api/access-tokens'),
