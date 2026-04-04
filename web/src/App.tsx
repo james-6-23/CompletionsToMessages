@@ -117,11 +117,15 @@ export default function App() {
         </div>
       </header>
 
-      <div className="container mx-auto px-4 sm:px-6 py-8 max-w-7xl">
+      <div className={`container mx-auto px-4 sm:px-6 max-w-7xl ${page === 'channels' ? 'py-4' : 'py-8'}`}>
         {page === 'dashboard' && <UsageDashboard />}
         {page === 'logs' && <RequestLogPage />}
         {page === 'models' && <ModelStatsPage />}
-        {page === 'channels' && <ChannelManager />}
+        {page === 'channels' && (
+          <div style={{ height: 'calc(100vh - 120px)' }}>
+            <ChannelManager />
+          </div>
+        )}
         {page === 'tokens' && <AccessTokenManager />}
       </div>
     </div>

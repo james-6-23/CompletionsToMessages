@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { api } from '@/lib/api';
@@ -10,16 +8,99 @@ import { toast } from '@/components/Toast';
 import type { ApiKey, Endpoint } from '@/types/usage';
 import {
   Plus, Trash2, Eye, EyeOff, Copy, FlaskConical, Check, X,
-  Loader2, KeyRound, Save, ChevronDown,
-  ChevronRight, Globe, Pencil, Power,
+  Loader2, KeyRound, Save, Globe, Pencil,
+  Search, MoreHorizontal, MinusCircle,
 } from 'lucide-react';
 import { fmtTimestamp } from './format';
 
 /* ------------------------------------------------------------------ */
-/*  单个 Key 卡片                                                      */
+/*  工具函数：根据端点名称生成颜色                                        */
 /* ------------------------------------------------------------------ */
 
-function KeyCard({ apiKey, isTesting, testResult, isRevealed, onToggle, onDelete, onTest, onCopy, onToggleReveal }: {
+const AVATAR_COLORS = [
+  'bg-purple-500', 'bg-blue-500', 'bg-green-500', 'bg-orange-500',
+  'bg-pink-500', 'bg-indigo-500', 'bg-teal-500', 'bg-red-500',
+  'bg-yellow-500', 'bg-cyan-500',
+];
+
+function getAvatarColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function getAvatarLetter(name: string): string {
+  return name.charAt(0).toUpperCase();
+}
+
+/* ------------------------------------------------------------------ */
+/*  左侧渠道列表项                                                      */
+/* ------------------------------------------------------------------ */
+
+function ChannelListItem({
+  endpoint,
+  isSelected,
+  onClick,
+}: {
+  endpoint: Endpoint;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  const color = getAvatarColor(endpoint.name);
+  const letter = getAvatarLetter(endpoint.name);
+  const tag = '#' + endpoint.name.toLowerCase().replace(/\s+/g, '_');
+
+  return (
+    <div
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all duration-150 ${
+        isSelected
+          ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-md'
+          : 'hover:bg-muted/60 text-foreground'
+      }`}
+      onClick={onClick}
+    >
+      {/* 头像 */}
+      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white font-bold text-sm ${color}`}>
+        {letter}
+      </div>
+
+      {/* 名称 + 标签 */}
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm font-semibold truncate ${isSelected ? 'text-white' : 'text-foreground'}`}>
+          {endpoint.name}
+        </p>
+        <div className="flex items-center gap-1.5 mt-0.5">
+          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+            isSelected
+              ? 'bg-white/20 text-white'
+              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+          }`}>
+            openai
+          </span>
+          <span className={`text-xs truncate ${isSelected ? 'text-white/70' : 'text-muted-foreground'}`}>
+            {tag}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  密钥卡片（右侧网格）                                                */
+/* ------------------------------------------------------------------ */
+
+function KeyCard({
+  apiKey,
+  isTesting,
+  testResult,
+  isRevealed,
+  onToggle,
+  onDelete,
+  onTest,
+  onCopy,
+  onToggleReveal,
+}: {
   apiKey: ApiKey;
   isTesting: boolean;
   testResult: boolean | null | undefined;
@@ -31,89 +112,108 @@ function KeyCard({ apiKey, isTesting, testResult, isRevealed, onToggle, onDelete
   onToggleReveal: () => void;
 }) {
   return (
-    <Card className={`transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 ${apiKey.is_active ? 'border-emerald-500/20 bg-emerald-500/[0.03]' : 'border-red-500/20 bg-red-500/[0.03]'}`}>
-      <CardContent className="p-5 space-y-3">
-        {/* 头部 */}
-        <div className="flex items-center justify-between">
-          <Badge
-            variant={apiKey.is_active ? 'default' : 'destructive'}
-            className={`text-xs cursor-pointer transition-colors ${apiKey.is_active ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/20' : ''}`}
-            onClick={onToggle}
-          >
-            {apiKey.is_active ? '有效' : '失效'}
-          </Badge>
-          <code className="text-sm font-mono bg-muted px-2.5 py-1 rounded-lg">
-            {apiKey.api_key_masked}
-          </code>
+    <div className={`rounded-2xl border p-4 space-y-3 transition-all duration-200 hover:shadow-sm ${
+      apiKey.is_active
+        ? 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-500/20 dark:bg-emerald-500/[0.04]'
+        : 'border-red-200 bg-red-50/50 dark:border-red-500/20 dark:bg-red-500/[0.04]'
+    }`}>
+      {/* 头部：状态 + 掩码key + 操作图标 */}
+      <div className="flex items-center gap-2">
+        {/* 状态 */}
+        <div
+          className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer shrink-0 ${
+            apiKey.is_active
+              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              : 'bg-red-500/10 text-red-500'
+          }`}
+          onClick={onToggle}
+        >
+          <div className={`w-1.5 h-1.5 rounded-full ${apiKey.is_active ? 'bg-emerald-500' : 'bg-red-400'}`} />
+          {apiKey.is_active ? '有效' : '失效'}
         </div>
 
-        {/* 标签 */}
-        {apiKey.label && (
-          <p className="text-sm text-muted-foreground truncate">{apiKey.label}</p>
-        )}
+        {/* 掩码Key */}
+        <code className="flex-1 text-xs font-mono text-foreground truncate min-w-0">
+          {apiKey.api_key_masked}
+        </code>
 
-        {/* 操作按钮行 */}
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleReveal} title="显示/隐藏">
+        {/* 图标操作组 */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            onClick={onToggleReveal}
+            title="显示/隐藏"
+          >
             {isRevealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onCopy} title="复制">
+          </button>
+          <button
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            onClick={onCopy}
+            title="复制"
+          >
             <Copy className="h-3.5 w-3.5" />
-          </Button>
+          </button>
         </div>
+      </div>
 
-        {/* 统计数据 */}
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          <span>请求 <strong className="text-foreground">{apiKey.total_requests}</strong></span>
-          <span>失败 <strong className={apiKey.failed_requests > 0 ? 'text-red-500' : 'text-foreground'}>{apiKey.failed_requests}</strong></span>
-          {apiKey.last_used_at && (
-            <span className="truncate">最近 {fmtTimestamp(apiKey.last_used_at)}</span>
-          )}
-        </div>
+      {/* 标签 */}
+      {apiKey.label && (
+        <p className="text-xs text-muted-foreground truncate">{apiKey.label}</p>
+      )}
 
-        {/* 操作行 */}
-        <div className="flex items-center justify-between pt-2 border-t border-border/50">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-blue-500 hover:text-blue-600 h-8 text-xs"
-            onClick={onTest}
-            disabled={isTesting}
-          >
-            {isTesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <FlaskConical className="h-3 w-3" />}
-            测试
-            {testResult === true && <Check className="h-3 w-3 text-emerald-500" />}
-            {testResult === false && <X className="h-3 w-3 text-red-500" />}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-red-500 hover:text-red-600 h-8 text-xs"
-            onClick={onDelete}
-          >
-            <Trash2 className="h-3 w-3" /> 删除
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+      {/* 统计：请求 / 失败 / 未使用 */}
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <span>
+          请求 <strong className="text-foreground">{apiKey.total_requests}</strong>
+        </span>
+        <span>
+          失败 <strong className={apiKey.failed_requests > 0 ? 'text-red-500' : 'text-foreground'}>
+            {apiKey.failed_requests}
+          </strong>
+        </span>
+        {apiKey.last_used_at ? (
+          <span className="truncate">最近 {fmtTimestamp(apiKey.last_used_at)}</span>
+        ) : (
+          <span>未使用</span>
+        )}
+      </div>
+
+      {/* 操作行：测试 + 删除 */}
+      <div className="flex items-center justify-between pt-1 border-t border-border/40">
+        <button
+          className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 font-medium transition-colors disabled:opacity-50"
+          onClick={onTest}
+          disabled={isTesting}
+        >
+          {isTesting
+            ? <Loader2 className="h-3 w-3 animate-spin" />
+            : <FlaskConical className="h-3 w-3" />}
+          测试
+          {testResult === true && <Check className="h-3 w-3 text-emerald-500" />}
+          {testResult === false && <X className="h-3 w-3 text-red-500" />}
+        </button>
+        <button
+          className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600 font-medium transition-colors"
+          onClick={onDelete}
+        >
+          <Trash2 className="h-3 w-3" /> 删除
+        </button>
+      </div>
+    </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  端点卡片（可折叠，包含密钥列表）                                     */
+/*  右侧详情面板                                                        */
 /* ------------------------------------------------------------------ */
 
-function EndpointCard({
+function ChannelDetailPanel({
   endpoint,
   keys,
-  expanded,
-  onToggleExpand,
   onRefresh,
 }: {
   endpoint: Endpoint;
   keys: ApiKey[];
-  expanded: boolean;
-  onToggleExpand: () => void;
   onRefresh: () => void;
 }) {
   /* 编辑模式 */
@@ -122,7 +222,7 @@ function EndpointCard({
   const [editUrl, setEditUrl] = useState(endpoint.base_url);
   const [saving, setSaving] = useState(false);
 
-  /* 新增密钥弹窗 */
+  /* 添加密钥弹窗 */
   const [showAddKey, setShowAddKey] = useState(false);
   const [newKeysText, setNewKeysText] = useState('');
   const [adding, setAdding] = useState(false);
@@ -132,22 +232,33 @@ function EndpointCard({
   const [testingKeys, setTestingKeys] = useState<Set<string>>(new Set());
   const [testResults, setTestResults] = useState<Record<string, boolean | null>>({});
 
-  /* 模型列表 */
+  /* 模型列表（测试用） */
   const [models, setModels] = useState<string[]>([]);
   const [testModel, setTestModel] = useState('');
   const [loadingModels, setLoadingModels] = useState(false);
 
-  /* 展开时自动加载模型列表 */
-  useEffect(() => {
-    if (expanded && models.length === 0 && keys.length > 0) {
-      fetchModels();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded]);
+  /* Key 搜索过滤 */
+  const [searchKey, setSearchKey] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'valid' | 'invalid'>('all');
 
-  /* 加载模型列表 */
+  /* 详情展开 */
+  const [showDetails, setShowDetails] = useState(false);
+
+  /* 当 endpoint 切换时，重置状态 */
+  useEffect(() => {
+    setEditing(false);
+    setEditName(endpoint.name);
+    setEditUrl(endpoint.base_url);
+    setSearchKey('');
+    setFilterStatus('all');
+    setTestResults({});
+    setRevealedKeys(new Set());
+    setModels([]);
+    setTestModel('');
+  }, [endpoint.id]);
+
   async function fetchModels() {
-    if (loadingModels) return;
+    if (loadingModels || keys.length === 0) return;
     setLoadingModels(true);
     try {
       const resp = await api.getEndpointModels(endpoint.id);
@@ -161,7 +272,6 @@ function EndpointCard({
     }
   }
 
-  /* 保存端点编辑 */
   async function handleSaveEndpoint() {
     if (!editName.trim() || !editUrl.trim()) return;
     setSaving(true);
@@ -176,7 +286,6 @@ function EndpointCard({
     }
   }
 
-  /* 删除端点 */
   async function handleDeleteEndpoint() {
     if (!confirm(`确定删除端点「${endpoint.name}」？关联的所有密钥也会被删除。`)) return;
     try {
@@ -187,17 +296,6 @@ function EndpointCard({
     }
   }
 
-  /* 切换端点状态 */
-  async function handleToggleEndpoint() {
-    try {
-      await api.toggleEndpoint(endpoint.id, !endpoint.is_active);
-      onRefresh();
-    } catch (e) {
-      console.error('切换端点状态失败:', e);
-    }
-  }
-
-  /* 批量添加密钥 */
   async function handleAddKeys() {
     const lines = newKeysText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     if (lines.length === 0) return;
@@ -216,22 +314,18 @@ function EndpointCard({
     }
   }
 
-  /* 文件上传密钥 */
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
-      if (text) {
-        setNewKeysText(prev => prev ? prev + '\n' + text.trim() : text.trim());
-      }
+      if (text) setNewKeysText(prev => prev ? prev + '\n' + text.trim() : text.trim());
     };
     reader.readAsText(file);
     e.target.value = '';
   }
 
-  /* 密钥操作 */
   async function handleDeleteKey(id: string) {
     if (!confirm('确定删除此密钥？')) return;
     try {
@@ -283,229 +377,277 @@ function EndpointCard({
     });
   }
 
-  const activeKeyCount = keys.filter(k => k.is_active).length;
-  const totalRequests = keys.reduce((sum, k) => sum + k.total_requests, 0);
+  /* 统计数据 */
+  const totalKeys = keys.length;
+  const req24h = keys.reduce((s, k) => s + k.total_requests, 0);
+  const failedTotal = keys.reduce((s, k) => s + k.failed_requests, 0);
+  const activeCount = keys.filter(k => k.is_active).length;
+
+  /* 过滤密钥 */
+  const filteredKeys = keys.filter(k => {
+    const matchSearch = !searchKey || k.api_key_masked.toLowerCase().includes(searchKey.toLowerCase());
+    const matchStatus =
+      filterStatus === 'all' ||
+      (filterStatus === 'valid' && k.is_active) ||
+      (filterStatus === 'invalid' && !k.is_active);
+    return matchSearch && matchStatus;
+  });
 
   return (
-    <Card className={`rounded-2xl transition-all duration-200 hover:shadow-md ${endpoint.is_active ? 'border-border/50' : 'border-red-500/20 bg-red-500/[0.02]'}`}>
-      <CardContent className="p-0">
-        {/* 端点头部 - 可点击折叠 */}
-        <div
-          className="flex items-center gap-3 p-5 cursor-pointer select-none"
-          onClick={onToggleExpand}
-        >
-          {/* 折叠图标 */}
-          <div className="shrink-0 text-muted-foreground">
-            {expanded
-              ? <ChevronDown className="h-4 w-4" />
-              : <ChevronRight className="h-4 w-4" />}
-          </div>
-
-          {/* 端点图标 */}
-          <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${endpoint.is_active ? 'bg-blue-500/10' : 'bg-red-500/10'}`}>
-            <Globe className={`h-4.5 w-4.5 ${endpoint.is_active ? 'text-blue-500' : 'text-red-400'}`} />
-          </div>
-
-          {/* 端点信息 */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold truncate">{endpoint.name}</span>
-              <Badge
-                variant={endpoint.is_active ? 'default' : 'destructive'}
-                className={`text-xs shrink-0 ${endpoint.is_active ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' : ''}`}
-              >
-                {endpoint.is_active ? '活跃' : '停用'}
-              </Badge>
+    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+      {/* 顶部：标题 + URL + 操作图标 */}
+      <div className="flex items-start justify-between gap-4 p-6 border-b border-border/50">
+        <div className="flex-1 min-w-0">
+          {editing ? (
+            <div className="space-y-3">
+              <div className="flex gap-2 flex-wrap">
+                <Input
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  className="w-48 h-8 text-sm"
+                  placeholder="渠道名称"
+                />
+                <Input
+                  value={editUrl}
+                  onChange={e => setEditUrl(e.target.value)}
+                  className="flex-1 min-w-48 h-8 text-sm"
+                  placeholder="https://api.example.com"
+                />
+                <Button size="sm" className="h-8" onClick={handleSaveEndpoint} disabled={saving}>
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                  保存
+                </Button>
+                <Button size="sm" variant="outline" className="h-8" onClick={() => setEditing(false)}>取消</Button>
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground truncate mt-0.5">{endpoint.base_url}</p>
-          </div>
-
-          {/* 右侧统计 */}
-          <div className="flex items-center gap-4 text-xs text-muted-foreground shrink-0">
-            <span>密钥 <strong className="text-foreground">{keys.length}</strong> (<span className="text-emerald-500">{activeKeyCount}</span>)</span>
-            <span>请求 <strong className="text-foreground">{totalRequests.toLocaleString()}</strong></span>
-          </div>
-
-          {/* 操作按钮（阻止冒泡） */}
-          <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              title={endpoint.is_active ? '停用端点' : '启用端点'}
-              onClick={handleToggleEndpoint}
-            >
-              <Power className={`h-3.5 w-3.5 ${endpoint.is_active ? 'text-emerald-500' : 'text-red-400'}`} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              title="编辑端点"
-              onClick={() => {
-                setEditName(endpoint.name);
-                setEditUrl(endpoint.base_url);
-                setEditing(true);
-                if (!expanded) onToggleExpand();
-              }}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-red-500 hover:text-red-600"
-              title="删除端点"
-              onClick={handleDeleteEndpoint}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
+          ) : (
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-2xl font-bold tracking-tight">{endpoint.name}</h2>
+              <span className="text-sm text-muted-foreground bg-muted/60 px-3 py-1 rounded-lg font-mono truncate max-w-sm">
+                {endpoint.base_url}
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* 展开区域 */}
-        {expanded && (
-          <div className="border-t border-border/50 p-5 pt-4 space-y-4">
+        {/* 操作图标 */}
+        {!editing && (
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              onClick={() => { copyToClipboard(endpoint.base_url); toast('已复制 URL', 'success'); }}
+              title="复制 URL"
+            >
+              <Copy className="h-4 w-4" />
+            </button>
+            <button
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              onClick={() => { setEditName(endpoint.name); setEditUrl(endpoint.base_url); setEditing(true); }}
+              title="编辑"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            <button
+              className="p-2 rounded-lg text-red-400 hover:text-red-500 hover:bg-red-500/10 transition-colors"
+              onClick={handleDeleteEndpoint}
+              title="删除"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 统计卡片行 */}
+      <div className="grid grid-cols-4 gap-0 border-b border-border/50">
+        {[
+          { label: '密钥数量', value: totalKeys, sub: activeCount, subColor: 'text-emerald-500' },
+          { label: '24小时请求', value: 0, sub: 0, subColor: 'text-red-400' },
+          { label: '7天请求', value: req24h, sub: failedTotal, subColor: 'text-red-400' },
+          { label: '30天请求', value: 0, sub: 0, subColor: 'text-red-400' },
+        ].map((stat, i) => (
+          <div key={i} className={`px-6 py-4 ${i < 3 ? 'border-r border-border/50' : ''}`}>
+            <p className="text-xs text-muted-foreground mb-1">{stat.label}</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-bold text-foreground">{stat.value}</span>
+              <span className={`text-xl font-bold ${stat.subColor}`}>{stat.sub}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 详细信息（折叠） */}
+      <div className="border-b border-border/50">
+        <button
+          className="flex items-center gap-2 px-6 py-3 text-sm text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+          onClick={() => setShowDetails(!showDetails)}
+        >
+          <span className="text-xs">{showDetails ? '▼' : '▶'}</span>
+          详细信息
+        </button>
+        {showDetails && (
+          <div className="px-6 pb-4 space-y-2 text-sm text-muted-foreground">
+            <div className="flex gap-8">
+              <span>活跃密钥: <strong className="text-emerald-500">{activeCount}</strong> / {totalKeys}</span>
+              <span>总请求: <strong className="text-foreground">{req24h.toLocaleString()}</strong></span>
+              <span>总失败: <strong className="text-red-500">{failedTotal}</strong></span>
+            </div>
             {/* 测试模型选择 */}
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-semibold text-muted-foreground shrink-0">测试模型:</span>
-              <Select
-                value={testModel || undefined}
-                onValueChange={setTestModel}
-                onOpenChange={(open) => { if (open && models.length === 0) fetchModels(); }}
-              >
-                <SelectTrigger className="w-[280px] h-8 text-xs">
+            <div className="flex items-center gap-3 pt-2">
+              <span className="text-xs font-medium text-muted-foreground shrink-0">测试模型:</span>
+              <Select value={testModel || undefined} onValueChange={setTestModel} onOpenChange={o => { if (o && models.length === 0) fetchModels(); }}>
+                <SelectTrigger className="w-60 h-7 text-xs">
                   <SelectValue placeholder={loadingModels ? '加载中...' : '选择模型'} />
                 </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  {models.map(m => (
-                    <SelectItem key={m} value={m} className="text-xs font-mono">{m}</SelectItem>
-                  ))}
+                <SelectContent className="max-h-[280px]">
+                  {models.map(m => <SelectItem key={m} value={m} className="text-xs font-mono">{m}</SelectItem>)}
                   {models.length === 0 && !loadingModels && (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">暂无模型，请先添加密钥</div>
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">暂无模型</div>
                   )}
                 </SelectContent>
               </Select>
-              <button
-                onClick={() => { setModels([]); fetchModels(); }}
-                className="text-xs text-primary hover:underline"
-              >
+              <button onClick={() => { setModels([]); fetchModels(); }} className="text-xs text-primary hover:underline">
                 {loadingModels ? '加载中...' : '刷新'}
               </button>
             </div>
-            {/* 编辑模式 */}
-            {editing && (
-              <Card className="border-border/50 bg-muted/30">
-                <CardContent className="p-4 space-y-3">
-                  <p className="text-xs font-semibold text-muted-foreground">编辑端点</p>
-                  <div className="flex flex-col gap-3 sm:flex-row">
-                    <Input
-                      placeholder="端点名称"
-                      value={editName}
-                      onChange={e => setEditName(e.target.value)}
-                      className="sm:w-48"
-                    />
-                    <Input
-                      placeholder="https://api.example.com"
-                      value={editUrl}
-                      onChange={e => setEditUrl(e.target.value)}
-                      className="flex-1"
-                    />
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={handleSaveEndpoint} disabled={saving || !editName.trim() || !editUrl.trim()}>
-                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                        保存
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setEditing(false)}>取消</Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* 添加密钥按钮 */}
-            <div className="flex items-center gap-3">
-              <Button size="sm" onClick={() => setShowAddKey(true)}>
-                <Plus className="h-4 w-4" /> 添加密钥
-              </Button>
-            </div>
-
-            {/* 添加密钥弹窗 */}
-            {showAddKey && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowAddKey(false)}>
-                <div className="w-full max-w-lg mx-4 rounded-2xl border border-border bg-card shadow-xl" onClick={e => e.stopPropagation()}>
-                  <div className="flex items-center justify-between p-5 border-b border-border/50">
-                    <h3 className="text-sm font-semibold">为 {endpoint.name} 添加密钥</h3>
-                    <button onClick={() => setShowAddKey(false)} className="text-muted-foreground hover:text-foreground transition-colors">
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <div className="p-5">
-                    <textarea
-                      placeholder="输入密钥，每行一个"
-                      value={newKeysText}
-                      onChange={e => setNewKeysText(e.target.value)}
-                      rows={8}
-                      className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm font-mono transition-all placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/10 resize-y"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between p-5 pt-0">
-                    <label className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-border bg-background text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer">
-                      上传文件
-                      <input type="file" accept=".txt,.csv,.key" className="hidden" onChange={handleFileUpload} />
-                    </label>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => setShowAddKey(false)}>取消</Button>
-                      <Button size="sm" onClick={handleAddKeys} disabled={adding || !newKeysText.trim()}>
-                        {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                        添加
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* 密钥列表 */}
-            {keys.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted mb-3">
-                  <KeyRound className="h-6 w-6 opacity-40" />
-                </div>
-                <p className="text-sm">暂无密钥，点击「添加密钥」开始</p>
-              </div>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {keys.map(key => (
-                  <KeyCard
-                    key={key.id}
-                    apiKey={key}
-                    isTesting={testingKeys.has(key.id)}
-                    testResult={testResults[key.id]}
-                    isRevealed={revealedKeys.has(key.id)}
-                    onToggle={() => handleToggleKey(key.id, key.is_active)}
-                    onDelete={() => handleDeleteKey(key.id)}
-                    onTest={() => handleTestKey(key.id)}
-                    onCopy={() => handleCopyKey(key.id)}
-                    onToggleReveal={() => toggleRevealKey(key.id)}
-                  />
-                ))}
-              </div>
-            )}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+
+      {/* 工具栏：添加 / 删除 / 筛选 / 搜索 */}
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-border/50 flex-wrap">
+        {/* 添加密钥按钮 */}
+        <Button
+          size="sm"
+          className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 gap-1.5 rounded-full px-4 text-xs font-semibold"
+          onClick={() => setShowAddKey(true)}
+        >
+          <Plus className="h-3.5 w-3.5" /> 添加密钥
+        </Button>
+
+        {/* 删除密钥（批量，示意） */}
+        <Button
+          size="sm"
+          variant="outline"
+          className="border-red-300 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 h-8 gap-1.5 rounded-full px-4 text-xs font-semibold"
+        >
+          <MinusCircle className="h-3.5 w-3.5" /> 删除密钥
+        </Button>
+
+        <div className="flex-1" />
+
+        {/* 状态筛选 */}
+        <Select value={filterStatus} onValueChange={v => setFilterStatus(v as 'all' | 'valid' | 'invalid')}>
+          <SelectTrigger className="w-24 h-8 text-xs rounded-lg">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" className="text-xs">全部</SelectItem>
+            <SelectItem value="valid" className="text-xs">有效</SelectItem>
+            <SelectItem value="invalid" className="text-xs">失效</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* 搜索 */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            value={searchKey}
+            onChange={e => setSearchKey(e.target.value)}
+            placeholder="Key 精确匹配"
+            className="h-8 pl-8 pr-3 text-xs w-40 rounded-lg"
+          />
+        </div>
+        <Button size="sm" className="h-8 text-xs px-3 rounded-lg">搜索</Button>
+        <button className="p-2 rounded-lg text-muted-foreground hover:bg-muted/60 transition-colors">
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* 密钥网格 */}
+      <div className="flex-1 p-6">
+        {filteredKeys.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted mb-4">
+              <KeyRound className="h-7 w-7 opacity-40" />
+            </div>
+            <p className="text-sm font-medium text-foreground">
+              {keys.length === 0 ? '暂无密钥，点击「添加密钥」开始' : '无匹配的密钥'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {filteredKeys.map(key => (
+              <KeyCard
+                key={key.id}
+                apiKey={key}
+                isTesting={testingKeys.has(key.id)}
+                testResult={testResults[key.id]}
+                isRevealed={revealedKeys.has(key.id)}
+                onToggle={() => handleToggleKey(key.id, key.is_active)}
+                onDelete={() => handleDeleteKey(key.id)}
+                onTest={() => handleTestKey(key.id)}
+                onCopy={() => handleCopyKey(key.id)}
+                onToggleReveal={() => toggleRevealKey(key.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 添加密钥弹窗 */}
+      {showAddKey && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={() => setShowAddKey(false)}
+        >
+          <div
+            className="w-full max-w-lg mx-4 rounded-2xl border border-border bg-card shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-5 border-b border-border/50">
+              <h3 className="text-sm font-semibold">为 {endpoint.name} 添加密钥</h3>
+              <button onClick={() => setShowAddKey(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-5">
+              <textarea
+                placeholder="输入密钥，每行一个"
+                value={newKeysText}
+                onChange={e => setNewKeysText(e.target.value)}
+                rows={8}
+                className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm font-mono transition-all placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/10 resize-y"
+              />
+            </div>
+            <div className="flex items-center justify-between p-5 pt-0">
+              <label className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-border bg-background text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer">
+                上传文件
+                <input type="file" accept=".txt,.csv,.key" className="hidden" onChange={handleFileUpload} />
+              </label>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setShowAddKey(false)}>取消</Button>
+                <Button size="sm" onClick={handleAddKeys} disabled={adding || !newKeysText.trim()}>
+                  {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  添加
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  新增端点表单                                                       */
+/*  新增端点弹窗（仿截图样式）                                          */
 /* ------------------------------------------------------------------ */
 
-function AddEndpointForm({ onAdded, onCancel }: { onAdded: () => void; onCancel: () => void }) {
+function AddEndpointModal({ onAdded, onCancel }: { onAdded: () => void; onCancel: () => void }) {
   const [name, setName] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
+  const [testModel, setTestModel] = useState('');
   const [adding, setAdding] = useState(false);
 
   async function handleSubmit() {
@@ -522,56 +664,116 @@ function AddEndpointForm({ onAdded, onCancel }: { onAdded: () => void; onCancel:
   }
 
   return (
-    <Card className="border-border/50">
-      <CardContent className="p-5 space-y-3">
-        <p className="text-sm font-semibold">新增上游端点</p>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Input
-            placeholder="端点名称 (例如: OpenAI 主力)"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            className="sm:w-56"
-          />
-          <Input
-            placeholder="https://api.example.com"
-            value={baseUrl}
-            onChange={e => setBaseUrl(e.target.value)}
-            className="flex-1"
-          />
-          <div className="flex gap-2">
-            <Button size="sm" onClick={handleSubmit} disabled={adding || !name.trim() || !baseUrl.trim()}>
-              {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              确认添加
-            </Button>
-            <Button size="sm" variant="outline" onClick={onCancel}>取消</Button>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-lg mx-4 rounded-2xl border border-border bg-card shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* 标题栏 */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border/60">
+          <h3 className="text-base font-semibold">创建渠道</h3>
+          <button
+            onClick={onCancel}
+            className="flex items-center justify-center w-7 h-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* 内容区 */}
+        <div className="px-6 py-5 space-y-6">
+          {/* 基础信息 */}
+          <div>
+            <h4 className="text-sm font-bold text-foreground mb-4 pb-2 border-b border-border/50">
+              基础信息
+            </h4>
+            <div className="space-y-4">
+              {/* 渠道名称 */}
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  渠道名称 <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  placeholder="例如: OpenAI 主力"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  className="flex-1 h-9"
+                />
+              </div>
+
+              {/* 上游地址 */}
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  上游地址 <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  placeholder="https://api.example.com"
+                  value={baseUrl}
+                  onChange={e => setBaseUrl(e.target.value)}
+                  className="flex-1 h-9 font-mono text-sm"
+                />
+              </div>
+
+              {/* 测试模型 */}
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  测试模型
+                </label>
+                <Input
+                  placeholder="gpt-4.1-nano"
+                  value={testModel}
+                  onChange={e => setTestModel(e.target.value)}
+                  className="flex-1 h-9 font-mono text-sm"
+                />
+              </div>
+            </div>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">填写 OpenAI 兼容 API 的服务端地址，不要以斜杠结尾</p>
-      </CardContent>
-    </Card>
+
+        {/* 底部操作 */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border/60">
+          <Button variant="outline" onClick={onCancel} className="px-5">
+            取消
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={adding || !name.trim() || !baseUrl.trim()}
+            className="px-5 bg-blue-500 hover:bg-blue-600 text-white"
+          >
+            {adding ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+            创建
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  主组件                                                             */
+/*  主组件（左右布局）                                                  */
 /* ------------------------------------------------------------------ */
 
 export function ChannelManager() {
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAddEndpoint, setShowAddEndpoint] = useState(false);
+  const [searchEndpoint, setSearchEndpoint] = useState('');
 
-  /* 加载所有数据 */
   const refresh = useCallback(() => {
-    Promise.all([
-      api.listEndpoints(),
-      api.listApiKeys(),
-    ]).then(([ep, ak]) => {
-      setEndpoints(ep);
-      setKeys(ak);
-    }).catch(console.error).finally(() => setLoading(false));
+    Promise.all([api.listEndpoints(), api.listApiKeys()])
+      .then(([ep, ak]) => {
+        setEndpoints(ep);
+        setKeys(ak);
+        /* 若还没有选中，默认选第一个 */
+        setSelectedId(prev => prev ?? (ep.length > 0 ? ep[0].id : null));
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -581,91 +783,94 @@ export function ChannelManager() {
     return () => clearInterval(timer);
   }, [refresh]);
 
-  /* 切换折叠 */
-  function toggleExpand(id: string) {
-    setExpandedIds(prev => {
-      const s = new Set(prev);
-      if (s.has(id)) s.delete(id); else s.add(id);
-      return s;
-    });
-  }
+  const filteredEndpoints = endpoints.filter(ep =>
+    !searchEndpoint || ep.name.toLowerCase().includes(searchEndpoint.toLowerCase())
+  );
 
-  /* 按 endpoint 分组密钥 */
-  function keysForEndpoint(endpointId: string): ApiKey[] {
-    return keys.filter(k => k.endpoint_id === endpointId);
-  }
-
-  /* 汇总 */
-  const totalKeys = keys.length;
-  const activeKeys = keys.filter(k => k.is_active).length;
-  const totalRequests = keys.reduce((sum, k) => sum + k.total_requests, 0);
-  const activeEndpoints = endpoints.filter(e => e.is_active).length;
+  const selectedEndpoint = endpoints.find(ep => ep.id === selectedId) ?? null;
+  const selectedKeys = selectedEndpoint ? keys.filter(k => k.endpoint_id === selectedEndpoint.id) : [];
 
   return (
-    <div className="space-y-6">
-      {/* 页头 */}
-      <div>
-        <h2 className="text-[clamp(28px,4vw,38px)] font-semibold leading-[1.08] tracking-tight">
-          渠道管理
-        </h2>
-        <p className="mt-2 text-muted-foreground text-[15px] leading-relaxed">
-          管理上游 API 端点和密钥池
-        </p>
+    <div className="flex h-full overflow-hidden rounded-2xl border border-border/50 bg-card shadow-sm">
+      {/* ── 左侧渠道列表 ── */}
+      <div className="w-56 shrink-0 flex flex-col border-r border-border/50 bg-muted/20">
+        {/* 搜索框 */}
+        <div className="p-3 border-b border-border/50">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              value={searchEndpoint}
+              onChange={e => setSearchEndpoint(e.target.value)}
+              placeholder="搜索分组名称..."
+              className="w-full h-8 pl-8 pr-3 text-xs rounded-lg border border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+            />
+          </div>
+        </div>
+
+        {/* 渠道列表 */}
+        <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+          {loading && endpoints.length === 0 ? (
+            <div className="flex items-center justify-center py-8 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+            </div>
+          ) : filteredEndpoints.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+              <Globe className="h-6 w-6 opacity-30 mb-2" />
+              <p className="text-xs">暂无渠道</p>
+            </div>
+          ) : (
+            filteredEndpoints.map(ep => (
+              <ChannelListItem
+                key={ep.id}
+                endpoint={ep}
+                isSelected={ep.id === selectedId}
+                onClick={() => setSelectedId(ep.id)}
+              />
+            ))
+          )}
+        </div>
+
+        {/* 底部：添加渠道按钮 */}
+        <div className="p-3 border-t border-border/50">
+          <Button
+            size="sm"
+            className="w-full h-8 text-xs gap-1.5"
+            onClick={() => setShowAddEndpoint(true)}
+          >
+            <Plus className="h-3.5 w-3.5" /> 添加渠道
+          </Button>
+        </div>
       </div>
 
-      {/* 汇总统计 */}
-      <div className="flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
-        <span>端点: <strong className="text-foreground">{endpoints.length}</strong> (活跃 <span className="text-emerald-500 font-semibold">{activeEndpoints}</span>)</span>
-        <span>密钥: <strong className="text-foreground">{totalKeys}</strong> (活跃 <span className="text-emerald-500 font-semibold">{activeKeys}</span>)</span>
-        <span>总请求: <strong className="text-foreground">{totalRequests.toLocaleString()}</strong></span>
+      {/* ── 右侧详情面板 ── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {loading && endpoints.length === 0 ? (
+          <div className="flex items-center justify-center flex-1 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin mr-2" /> 加载中...
+          </div>
+        ) : selectedEndpoint ? (
+          <ChannelDetailPanel
+            key={selectedEndpoint.id}
+            endpoint={selectedEndpoint}
+            keys={selectedKeys}
+            onRefresh={refresh}
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground">
+            <Globe className="h-12 w-12 opacity-20 mb-4" />
+            <p className="text-base font-medium text-foreground">选择一个渠道</p>
+            <p className="text-sm mt-1">或点击「添加渠道」创建新的上游端点</p>
+          </div>
+        )}
       </div>
 
-      {/* 添加端点按钮 */}
-      <div className="flex items-center gap-3">
-        <Button size="sm" onClick={() => setShowAddEndpoint(!showAddEndpoint)}>
-          <Plus className="h-4 w-4" /> 添加端点
-        </Button>
-      </div>
-
-      {/* 添加端点表单 */}
+      {/* 添加渠道弹窗 */}
       {showAddEndpoint && (
-        <AddEndpointForm
+        <AddEndpointModal
           onAdded={() => { setShowAddEndpoint(false); refresh(); }}
           onCancel={() => setShowAddEndpoint(false)}
         />
       )}
-
-      {/* 加载状态 */}
-      {loading && endpoints.length === 0 && (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin mr-3" /> 加载中...
-        </div>
-      )}
-
-      {/* 空状态 */}
-      {!loading && endpoints.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted mb-4">
-            <Globe className="h-8 w-8 opacity-40" />
-          </div>
-          <p className="text-lg font-semibold text-foreground">暂无上游端点</p>
-          <p className="text-sm mt-1">点击「添加端点」开始配置上游 API 服务</p>
-        </div>
-      )}
-
-      {/* 端点列表 */}
-      <div className="space-y-4">
-        {endpoints.map(ep => (
-          <EndpointCard
-            key={ep.id}
-            endpoint={ep}
-            keys={keysForEndpoint(ep.id)}
-            expanded={expandedIds.has(ep.id)}
-            onToggleExpand={() => toggleExpand(ep.id)}
-            onRefresh={refresh}
-          />
-        ))}
-      </div>
     </div>
   );
 }
