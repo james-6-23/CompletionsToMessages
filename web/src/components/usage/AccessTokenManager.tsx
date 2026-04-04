@@ -248,10 +248,6 @@ function AccessTokenCard({
     }
   }
 
-  function handleCopy(text: string) {
-    copyToClipboard(text);
-  }
-
   return (
     <Card className={`rounded-2xl transition-all duration-200 hover:shadow-md ${token.is_active ? 'border-border/50' : 'border-red-500/20 bg-red-500/[0.02]'}`}>
       <CardContent className="p-5 space-y-3">
