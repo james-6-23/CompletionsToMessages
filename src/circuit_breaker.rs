@@ -1,10 +1,10 @@
-//! 简易熔断器
+//! 简易熔断器（无锁优化版）
 //!
 //! 每个 API Key 独立跟踪，连续失败超过阈值后熔断，
 //! 超时后进入半开状态允许单次探测。
+//! 使用 DashMap 实现细粒度并发，不同 Key 的操作互不阻塞。
 
-use std::collections::HashMap;
-use std::sync::Mutex;
+use dashmap::DashMap;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -21,7 +21,7 @@ struct KeyHealth {
 }
 
 pub struct CircuitBreaker {
-    keys: Mutex<HashMap<String, KeyHealth>>,
+    keys: DashMap<String, KeyHealth>,
     failure_threshold: u32,
     success_threshold: u32,
     timeout: Duration,
@@ -30,7 +30,7 @@ pub struct CircuitBreaker {
 impl CircuitBreaker {
     pub fn new(failure_threshold: u32, success_threshold: u32, timeout_secs: u64) -> Self {
         Self {
-            keys: Mutex::new(HashMap::new()),
+            keys: DashMap::new(),
             failure_threshold,
             success_threshold,
             timeout: Duration::from_secs(timeout_secs),
@@ -39,8 +39,7 @@ impl CircuitBreaker {
 
     /// 检查密钥是否可用
     pub fn is_available(&self, key_id: &str) -> bool {
-        let mut keys = self.keys.lock().unwrap();
-        let health = keys.entry(key_id.to_string()).or_insert(KeyHealth {
+        let mut health = self.keys.entry(key_id.to_string()).or_insert(KeyHealth {
             state: State::Closed,
             consecutive_failures: 0,
             consecutive_successes: 0,
@@ -64,8 +63,7 @@ impl CircuitBreaker {
 
     /// 记录密钥请求成功
     pub fn record_success(&self, key_id: &str) {
-        let mut keys = self.keys.lock().unwrap();
-        let health = keys.entry(key_id.to_string()).or_insert(KeyHealth {
+        let mut health = self.keys.entry(key_id.to_string()).or_insert(KeyHealth {
             state: State::Closed,
             consecutive_failures: 0,
             consecutive_successes: 0,
@@ -82,8 +80,7 @@ impl CircuitBreaker {
 
     /// 记录密钥请求失败
     pub fn record_failure(&self, key_id: &str) {
-        let mut keys = self.keys.lock().unwrap();
-        let health = keys.entry(key_id.to_string()).or_insert(KeyHealth {
+        let mut health = self.keys.entry(key_id.to_string()).or_insert(KeyHealth {
             state: State::Closed,
             consecutive_failures: 0,
             consecutive_successes: 0,

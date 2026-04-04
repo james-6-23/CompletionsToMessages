@@ -85,6 +85,9 @@ pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> 
     let timeout = std::time::Duration::from_secs(config.timeouts.request_timeout_secs);
     let http_client = reqwest::Client::builder()
         .timeout(timeout)
+        .pool_max_idle_per_host(32)
+        .pool_idle_timeout(std::time::Duration::from_secs(90))
+        .tcp_keepalive(std::time::Duration::from_secs(60))
         .build()?;
 
     let db = Arc::new(db);

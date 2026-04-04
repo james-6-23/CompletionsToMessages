@@ -26,7 +26,7 @@ pub async fn health_check() -> (StatusCode, Json<Value>) {
 
 /// 判断 HTTP 状态码是否可重试
 fn is_retryable_status(status: u16) -> bool {
-    status >= 500 || status == 429 || status == 529
+    status >= 500 || status == 429 || status == 529 || status == 402
 }
 
 /// 解析上下文窗口溢出错误: "input length and `max_tokens` exceed context limit: X + Y > Z"

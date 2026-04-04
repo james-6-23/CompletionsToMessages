@@ -1,15 +1,53 @@
 //! SQLite 数据库模块
 //!
 //! 管理使用统计数据的存储与查询
+//!
+//! 并发优化：读写分离架构
+//! - 1 个写连接（Mutex 保护）：处理所有 INSERT/UPDATE/DELETE
+//! - N 个读连接（连接池）：处理所有 SELECT 查询，互不阻塞
+//! - WAL 模式：允许读写并发
 
+use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use serde::Serialize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-/// 线程安全的数据库连接封装
+/// 读连接池：多个只读连接轮询使用
+struct ReadPool {
+    conns: Vec<Mutex<Connection>>,
+    counter: std::sync::atomic::AtomicUsize,
+}
+
+impl ReadPool {
+    fn new(path: &str, size: usize) -> Result<Self, String> {
+        let mut conns = Vec::with_capacity(size);
+        for _ in 0..size {
+            let conn = Connection::open_with_flags(
+                path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            ).map_err(|e| format!("打开只读连接失败: {e}"))?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA query_only=ON;").ok();
+            conns.push(Mutex::new(conn));
+        }
+        Ok(Self {
+            conns,
+            counter: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+
+    /// 轮询获取一个读连接
+    fn get(&self) -> &Mutex<Connection> {
+        let idx = self.counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % self.conns.len();
+        &self.conns[idx]
+    }
+}
+
+/// 线程安全的数据库连接封装（读写分离）
 #[derive(Clone)]
 pub struct Database {
-    conn: Arc<Mutex<Connection>>,
+    writer: Arc<Mutex<Connection>>,
+    reader: Arc<ReadPool>,
 }
 
 /// 使用统计摘要
@@ -162,9 +200,14 @@ impl Database {
         let conn = Connection::open(path)
             .map_err(|e| format!("打开数据库失败: {e}"))?;
 
-        // 启用 WAL 模式提升并发性能
-        conn.execute_batch("PRAGMA journal_mode=WAL;")
-            .map_err(|e| format!("设置 WAL 模式失败: {e}"))?;
+        // 启用 WAL 模式 + 性能 PRAGMA
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
+             PRAGMA busy_timeout=5000;
+             PRAGMA cache_size=-8000;
+             PRAGMA mmap_size=268435456;"
+        ).map_err(|e| format!("设置 PRAGMA 失败: {e}"))?;
 
         // 创建请求日志表
         conn.execute_batch(
@@ -500,7 +543,8 @@ impl Database {
         }
 
         Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
+            writer: Arc::new(Mutex::new(conn)),
+            reader: Arc::new(ReadPool::new(path, 4)?),
         })
     }
 
@@ -528,7 +572,7 @@ impl Database {
         key_id: &str,
         created_at: i64,
     ) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         conn.execute(
             "INSERT INTO proxy_request_logs (
                 request_id, model, request_model, input_tokens, output_tokens,
@@ -549,7 +593,7 @@ impl Database {
 
     /// 查询使用统计摘要
     pub fn get_usage_summary(&self, start_ts: i64, end_ts: i64, channel_id_filter: Option<&str>) -> Result<UsageSummary, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
 
         let mut sql = "SELECT
                 COUNT(*) as total_requests,
@@ -596,7 +640,7 @@ impl Database {
         interval_secs: i64,
         channel_id_filter: Option<&str>,
     ) -> Result<Vec<UsageTrend>, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
 
         let mut sql = "SELECT
                 (created_at / ?3) * ?3 as bucket,
@@ -650,7 +694,7 @@ impl Database {
 
     /// 查询模型维度统计
     pub fn get_model_stats(&self, start_ts: i64, end_ts: i64) -> Result<Vec<ModelStats>, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
         let mut stmt = conn.prepare(
             "SELECT
                 model,
@@ -698,7 +742,7 @@ impl Database {
         start_ts: i64,
         end_ts: i64,
     ) -> Result<PaginatedLogs, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
 
         // 构建动态 WHERE 条件
         let mut conditions = vec!["created_at >= ?1 AND created_at < ?2".to_string()];
@@ -822,7 +866,7 @@ impl Database {
 
     /// 查询所有模型定价
     pub fn get_model_pricing(&self) -> Result<Vec<ModelPricingRow>, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
         let mut stmt = conn.prepare(
             "SELECT model_id, display_name, input_cost_per_million, output_cost_per_million,
                     cache_read_cost_per_million, cache_creation_cost_per_million
@@ -850,7 +894,7 @@ impl Database {
 
     /// 根据模型 ID 查询单个定价信息
     pub fn get_pricing_for_model(&self, model: &str) -> Result<Option<ModelPricingRow>, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
         let mut stmt = conn.prepare(
             "SELECT model_id, display_name, input_cost_per_million, output_cost_per_million,
                     cache_read_cost_per_million, cache_creation_cost_per_million
@@ -880,7 +924,7 @@ impl Database {
 
     /// 查询所有上游端点（含每个端点的 key 数量）
     pub fn list_endpoints(&self) -> Result<Vec<EndpointRow>, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
         let mut stmt = conn.prepare(
             "SELECT e.id, e.name, e.base_url, e.is_active, e.created_at,
                     (SELECT COUNT(*) FROM api_keys k WHERE k.endpoint_id = e.id) as key_count,
@@ -914,7 +958,7 @@ impl Database {
 
     /// 添加上游端点
     pub fn add_endpoint(&self, name: &str, base_url: &str, website_url: &str, logo_url: &str) -> Result<EndpointRow, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = chrono::Utc::now().timestamp();
 
@@ -938,7 +982,7 @@ impl Database {
 
     /// 更新上游端点
     pub fn update_endpoint(&self, id: &str, name: &str, base_url: &str, website_url: &str, logo_url: &str) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         conn.execute(
             "UPDATE upstream_endpoints SET name = ?1, base_url = ?2, website_url = ?3, logo_url = ?4 WHERE id = ?5",
             params![name, base_url, website_url, logo_url, id],
@@ -948,7 +992,7 @@ impl Database {
 
     /// 更新上游端点启用状态
     pub fn update_endpoint_status(&self, id: &str, is_active: bool) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         conn.execute(
             "UPDATE upstream_endpoints SET is_active = ?1 WHERE id = ?2",
             params![is_active as i32, id],
@@ -958,7 +1002,7 @@ impl Database {
 
     /// 删除上游端点（同时删除关联的所有 key）
     pub fn delete_endpoint(&self, id: &str) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         conn.execute("DELETE FROM api_keys WHERE endpoint_id = ?1", params![id])
             .map_err(|e| format!("删除端点关联密钥失败: {e}"))?;
         conn.execute("DELETE FROM upstream_endpoints WHERE id = ?1", params![id])
@@ -968,7 +1012,7 @@ impl Database {
 
     /// 获取单个端点的 base_url
     pub fn get_endpoint_url(&self, id: &str) -> Result<Option<String>, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
         let result = conn.query_row(
             "SELECT base_url FROM upstream_endpoints WHERE id = ?1 AND is_active = 1",
             params![id],
@@ -983,7 +1027,7 @@ impl Database {
 
     /// 更新端点支持的模型列表
     pub fn update_endpoint_models(&self, id: &str, models: &[String]) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         let models_json = serde_json::to_string(models)
             .map_err(|e| format!("序列化模型列表失败: {e}"))?;
         conn.execute(
@@ -997,7 +1041,7 @@ impl Database {
 
     /// 查询所有 API Key（脱敏），可按端点过滤
     pub fn list_api_keys(&self, endpoint_id: Option<&str>) -> Result<Vec<ApiKeyRow>, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
 
         let map_row = |row: &rusqlite::Row| -> rusqlite::Result<ApiKeyRow> {
             let raw_key: String = row.get(2)?;
@@ -1047,7 +1091,7 @@ impl Database {
 
     /// 添加 API Key（绑定到指定端点）
     pub fn add_api_key(&self, endpoint_id: &str, api_key: &str, label: &str) -> Result<ApiKeyRow, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = chrono::Utc::now().timestamp();
 
@@ -1072,7 +1116,7 @@ impl Database {
 
     /// 删除 API Key
     pub fn delete_api_key(&self, id: &str) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         conn.execute("DELETE FROM api_keys WHERE id = ?1", params![id])
             .map_err(|e| format!("删除 api_key 失败: {e}"))?;
         Ok(())
@@ -1080,7 +1124,7 @@ impl Database {
 
     /// 更新 API Key 启用状态
     pub fn update_api_key_status(&self, id: &str, is_active: bool) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         conn.execute(
             "UPDATE api_keys SET is_active = ?1 WHERE id = ?2",
             params![is_active as i32, id],
@@ -1090,7 +1134,7 @@ impl Database {
 
     /// 更新 API Key 标签
     pub fn update_api_key_label(&self, id: &str, label: &str) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         conn.execute(
             "UPDATE api_keys SET label = ?1 WHERE id = ?2",
             params![label, id],
@@ -1100,7 +1144,7 @@ impl Database {
 
     /// 递增 API Key 使用统计
     pub fn increment_key_stats(&self, id: &str, success: bool) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         let now = chrono::Utc::now().timestamp();
         let failed_inc = if success { 0 } else { 1 };
 
@@ -1115,7 +1159,7 @@ impl Database {
     ///
     /// 只返回所属端点也处于活跃状态的密钥
     pub fn get_all_active_keys(&self) -> Result<Vec<ActiveKey>, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
         let mut stmt = conn.prepare(
             "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models
             FROM api_keys k
@@ -1145,7 +1189,7 @@ impl Database {
 
     /// 获取完整 API Key 及其端点 URL（用于测试密钥等场景）
     pub fn get_api_key_full(&self, id: &str) -> Result<Option<(String, String)>, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
         let result = conn.query_row(
             "SELECT k.api_key, e.base_url
             FROM api_keys k
@@ -1166,7 +1210,7 @@ impl Database {
 
     /// 获取设置值
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
         let result = conn.query_row(
             "SELECT value FROM proxy_settings WHERE key = ?1",
             params![key],
@@ -1181,7 +1225,7 @@ impl Database {
 
     /// 设置值（upsert）
     pub fn set_setting(&self, key: &str, value: &str) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         conn.execute(
             "INSERT INTO proxy_settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -1194,7 +1238,7 @@ impl Database {
 
     /// 查询所有访问密钥（token 脱敏），附带绑定的渠道 ID 列表
     pub fn list_access_tokens(&self) -> Result<Vec<AccessTokenRow>, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
         let mut stmt = conn.prepare(
             "SELECT id, token, name, is_active, total_requests, failed_requests, last_used_at, created_at
             FROM access_tokens
@@ -1246,7 +1290,7 @@ impl Database {
 
     /// 添加访问密钥，自动生成 token，返回含完整 token 的行（仅此一次展示）
     pub fn add_access_token(&self, name: &str, channel_ids: &[String]) -> Result<AccessTokenRow, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         let id = uuid::Uuid::new_v4().to_string();
         let token = format!("sk-proxy-{}", uuid::Uuid::new_v4().to_string().replace('-', ""));
         let created_at = chrono::Utc::now().timestamp();
@@ -1278,7 +1322,7 @@ impl Database {
 
     /// 删除访问密钥及其渠道关联
     pub fn delete_access_token(&self, id: &str) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         conn.execute("DELETE FROM access_token_channels WHERE access_token_id = ?1", params![id])
             .map_err(|e| format!("删除访问密钥渠道关联失败: {e}"))?;
         conn.execute("DELETE FROM access_tokens WHERE id = ?1", params![id])
@@ -1288,7 +1332,7 @@ impl Database {
 
     /// 更新访问密钥启用状态
     pub fn update_access_token_status(&self, id: &str, is_active: bool) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         conn.execute(
             "UPDATE access_tokens SET is_active = ?1 WHERE id = ?2",
             params![is_active as i32, id],
@@ -1298,7 +1342,7 @@ impl Database {
 
     /// 替换访问密钥绑定的渠道列表
     pub fn update_access_token_channels(&self, id: &str, channel_ids: &[String]) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         conn.execute("DELETE FROM access_token_channels WHERE access_token_id = ?1", params![id])
             .map_err(|e| format!("清除访问密钥渠道关联失败: {e}"))?;
 
@@ -1313,7 +1357,7 @@ impl Database {
 
     /// 根据 token 原始值查找访问密钥（用于认证）
     pub fn get_access_token_by_value(&self, token: &str) -> Result<Option<AccessTokenRow>, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
         let result = conn.query_row(
             "SELECT id, token, name, is_active, total_requests, failed_requests, last_used_at, created_at
             FROM access_tokens WHERE token = ?1",
@@ -1365,7 +1409,7 @@ impl Database {
     ///
     /// 只返回活跃渠道 + 活跃密钥的组合
     pub fn get_active_keys_for_token(&self, token: &str) -> Result<Vec<ActiveKey>, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
         let mut stmt = conn.prepare(
             "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models
             FROM api_keys k
@@ -1397,7 +1441,7 @@ impl Database {
 
     /// 递增访问密钥使用统计
     pub fn increment_access_token_stats(&self, id: &str, success: bool) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.writer.lock();
         let now = chrono::Utc::now().timestamp();
         let failed_inc = if success { 0 } else { 1 };
 
@@ -1410,7 +1454,7 @@ impl Database {
 
     /// 查询 access_tokens 表中的记录数
     pub fn count_access_tokens(&self) -> Result<u64, String> {
-        let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        let conn = self.reader.get().lock();
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM access_tokens", [], |row| row.get(0))
             .map_err(|e| format!("查询访问密钥数量失败: {e}"))?;
         Ok(count as u64)

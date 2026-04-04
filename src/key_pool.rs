@@ -149,8 +149,8 @@ impl KeyPool {
     /// 上报密钥使用结果，更新统计和熔断器状态
     ///
     /// `status_code`: 上游 HTTP 状态码，None 表示网络错误（无响应）。
-    /// 仅在服务端错误（5xx）、限流（429/529）、网络错误时触发熔断；
-    /// 客户端错误（4xx，除 429 外）视为密钥正常，不计入熔断失败。
+    /// 触发熔断的条件：5xx 服务端错误、429/529 限流、402 余额不足、网络错误。
+    /// 其他 4xx 客户端错误视为密钥正常，不计入熔断失败。
     pub async fn report_result(&self, key_id: &str, success: bool, status_code: Option<u16>) {
         // 更新熔断器状态：根据状态码智能判断
         if success {
@@ -158,9 +158,10 @@ impl KeyPool {
         } else {
             let should_fuse = match status_code {
                 None => true, // 网络错误，触发熔断
+                Some(402) => true, // 余额不足，触发熔断（自动切换到其他健康 key）
                 Some(429) | Some(529) => true, // 限流/过载，触发熔断
                 Some(code) if code >= 500 => true, // 服务端错误，触发熔断
-                Some(_) => false, // 4xx 客户端错误（除 429），不触发熔断
+                Some(_) => false, // 其他 4xx 客户端错误，不触发熔断
             };
             if should_fuse {
                 self.circuit_breaker.record_failure(key_id);
