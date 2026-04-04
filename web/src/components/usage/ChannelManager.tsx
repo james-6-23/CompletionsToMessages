@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import type { ApiKey, Endpoint } from '@/types/usage';
 import {
   Plus, Trash2, Eye, EyeOff, Copy, FlaskConical, Check, X,
-  Loader2, KeyRound, Save, RefreshCw, ChevronDown,
+  Loader2, KeyRound, Save, ChevronDown,
   ChevronRight, Globe, Pencil, Power,
 } from 'lucide-react';
 import { fmtTimestamp } from './format';
