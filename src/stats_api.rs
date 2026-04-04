@@ -1091,7 +1091,7 @@ pub async fn test_proxy(
     State(_state): State<AppState>,
     Json(body): Json<TestProxyRequest>,
 ) -> Result<Json<Value>, ProxyError> {
-    let proxy_url = body.proxy_url.trim().to_string();
+    let proxy_url = normalize_proxy_url(&body.proxy_url);
     if proxy_url.is_empty() {
         return Err(ProxyError::Internal("代理地址不能为空".to_string()));
     }
