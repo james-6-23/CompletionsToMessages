@@ -273,9 +273,6 @@ function AccessTokenCard({
               </div>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <code className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{token.token_masked}</code>
-                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleCopy(token.token_masked)}>
-                  <Copy className="h-3 w-3" />
-                </Button>
               </div>
             </div>
           </div>
