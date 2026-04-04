@@ -62,7 +62,8 @@ export type TimeRange = "1d" | "7d";
 
 export interface ApiKey {
   id: string;
-  api_key_masked: string;  // e.g. "sk_c...afo1"
+  endpoint_id: string;
+  api_key_masked: string;
   label: string;
   is_active: boolean;
   total_requests: number;
@@ -71,8 +72,33 @@ export interface ApiKey {
   created_at: number;
 }
 
+export interface Endpoint {
+  id: string;
+  name: string;
+  base_url: string;
+  is_active: boolean;
+  key_count: number;
+  created_at: number;
+}
+
 export interface TestKeyResult {
   valid: boolean;
   status?: number;
   error?: string;
+}
+
+export interface AccessToken {
+  id: string;
+  token_masked: string;
+  name: string;
+  is_active: boolean;
+  total_requests: number;
+  failed_requests: number;
+  last_used_at: number | null;
+  channel_ids: string[];
+  created_at: number;
+}
+
+export interface AccessTokenCreated extends AccessToken {
+  token: string;
 }

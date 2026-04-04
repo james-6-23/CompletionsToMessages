@@ -1,4 +1,4 @@
-import type { UsageSummary, DailyStats, PaginatedLogs, ModelStats, ModelPricing, ApiKey, TestKeyResult } from '@/types/usage';
+import type { UsageSummary, DailyStats, PaginatedLogs, ModelStats, ModelPricing, ApiKey, Endpoint, TestKeyResult, AccessToken, AccessTokenCreated } from '@/types/usage';
 
 const BASE = '';
 
@@ -97,17 +97,27 @@ export const api = {
   getConfig: () =>
     fetchJson<Record<string, unknown>>(`${BASE}/api/config`),
 
-  listApiKeys: () => fetchJson<ApiKey[]>('/api/keys'),
-  addApiKey: (data: { api_key: string; label: string }) => postJson<ApiKey>('/api/keys', data),
+  // 渠道 API Key
+  listApiKeys: (endpointId?: string) => {
+    const sp = endpointId ? `?endpoint_id=${endpointId}` : '';
+    return fetchJson<ApiKey[]>(`/api/keys${sp}`);
+  },
+  addApiKey: (data: { endpoint_id: string; api_key: string; label: string }) => postJson<ApiKey>('/api/keys', data),
   deleteApiKey: (id: string) => deleteJson<{ ok: boolean }>(`/api/keys/${id}`),
   toggleApiKey: (id: string, is_active: boolean) => putJson<{ ok: boolean }>(`/api/keys/${id}/status`, { is_active }),
   testApiKey: (id: string) => postJson<TestKeyResult>(`/api/keys/${id}/test`, {}),
 
-  // 上游 URL
-  getUpstreamUrl: () => fetchJson<{ base_url: string }>('/api/upstream'),
-  setUpstreamUrl: (base_url: string) => putJson<{ ok: boolean }>('/api/upstream', { base_url }),
+  // 渠道（上游端点）
+  listEndpoints: () => fetchJson<Endpoint[]>('/api/endpoints'),
+  addEndpoint: (data: { name: string; base_url: string }) => postJson<Endpoint>('/api/endpoints', data),
+  updateEndpoint: (id: string, data: { name: string; base_url: string }) => putJson<{ ok: boolean }>(`/api/endpoints/${id}`, data),
+  deleteEndpoint: (id: string) => deleteJson<{ ok: boolean }>(`/api/endpoints/${id}`),
+  toggleEndpoint: (id: string, is_active: boolean) => putJson<{ ok: boolean }>(`/api/endpoints/${id}/status`, { is_active }),
 
-  // Auth Token
-  getAuthToken: () => fetchJson<{ has_token: boolean; token_masked: string | null }>('/api/auth-token'),
-  setAuthToken: (token?: string) => postJson<{ ok: boolean; token: string }>('/api/auth-token', { token: token || '' }),
+  // 访问密钥
+  listAccessTokens: () => fetchJson<AccessToken[]>('/api/access-tokens'),
+  addAccessToken: (data: { name: string; channel_ids: string[] }) => postJson<AccessTokenCreated>('/api/access-tokens', data),
+  deleteAccessToken: (id: string) => deleteJson<{ ok: boolean }>(`/api/access-tokens/${id}`),
+  toggleAccessToken: (id: string, is_active: boolean) => putJson<{ ok: boolean }>(`/api/access-tokens/${id}/status`, { is_active }),
+  updateAccessTokenChannels: (id: string, channel_ids: string[]) => putJson<{ ok: boolean }>(`/api/access-tokens/${id}/channels`, { channel_ids }),
 };

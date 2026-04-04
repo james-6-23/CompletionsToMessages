@@ -2,19 +2,21 @@ import { useState, useEffect } from 'react'
 import { UsageDashboard } from '@/components/usage/UsageDashboard'
 import { RequestLogPage } from '@/components/usage/RequestLogPage'
 import { ModelStatsPage } from '@/components/usage/ModelStatsPage'
-import { ApiKeyManager } from '@/components/usage/ApiKeyManager'
+import { ChannelManager } from '@/components/usage/ChannelManager'
+import { AccessTokenManager } from '@/components/usage/AccessTokenManager'
 import { AdminLogin } from '@/components/AdminLogin'
 import { api, setAdminSecret } from '@/lib/api'
 import { useTheme } from '@/hooks/useTheme'
-import { Sun, Moon, LayoutDashboard, ScrollText, BarChart3, KeyRound } from 'lucide-react'
+import { Sun, Moon, LayoutDashboard, ScrollText, BarChart3, KeyRound, Network } from 'lucide-react'
 
-type Page = 'dashboard' | 'logs' | 'models' | 'keys'
+type Page = 'dashboard' | 'logs' | 'models' | 'channels' | 'tokens'
 
 const NAV_ITEMS: { key: Page; label: string; icon: React.ReactNode }[] = [
   { key: 'dashboard', label: '总览', icon: <LayoutDashboard className="size-4" /> },
   { key: 'logs', label: '请求日志', icon: <ScrollText className="size-4" /> },
   { key: 'models', label: '模型统计', icon: <BarChart3 className="size-4" /> },
-  { key: 'keys', label: '密钥管理', icon: <KeyRound className="size-4" /> },
+  { key: 'channels', label: '渠道管理', icon: <Network className="size-4" /> },
+  { key: 'tokens', label: '访问密钥', icon: <KeyRound className="size-4" /> },
 ]
 
 export default function App() {
@@ -67,10 +69,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* 顶部导航栏 */}
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl">
         <div className="container mx-auto max-w-7xl px-4 sm:px-6">
-          {/* 第一行：品牌 + 工具 */}
           <div className="flex h-14 items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
@@ -100,7 +100,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* 第二行：导航 tabs */}
           <nav className="flex gap-1 -mb-px overflow-x-auto">
             {NAV_ITEMS.map((item) => (
               <button
@@ -120,12 +119,12 @@ export default function App() {
         </div>
       </header>
 
-      {/* 主内容 */}
       <div className="container mx-auto px-4 sm:px-6 py-8 max-w-7xl">
         {page === 'dashboard' && <UsageDashboard />}
         {page === 'logs' && <RequestLogPage />}
         {page === 'models' && <ModelStatsPage />}
-        {page === 'keys' && <ApiKeyManager />}
+        {page === 'channels' && <ChannelManager />}
+        {page === 'tokens' && <AccessTokenManager />}
       </div>
     </div>
   )

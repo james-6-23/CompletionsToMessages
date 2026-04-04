@@ -112,8 +112,13 @@ pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> 
         .route("/keys/:id", delete(stats_api::delete_key))
         .route("/keys/:id/status", put(stats_api::update_key_status))
         .route("/keys/:id/test", post(stats_api::test_key))
-        .route("/upstream", get(stats_api::get_upstream_url).put(stats_api::set_upstream_url))
-        .route("/auth-token", get(stats_api::get_auth_token).post(stats_api::set_auth_token))
+        .route("/endpoints", get(stats_api::list_endpoints).post(stats_api::add_endpoint))
+        .route("/endpoints/:id", put(stats_api::update_endpoint).delete(stats_api::delete_endpoint))
+        .route("/endpoints/:id/status", put(stats_api::update_endpoint_status))
+        .route("/access-tokens", get(stats_api::list_access_tokens).post(stats_api::add_access_token))
+        .route("/access-tokens/:id", delete(stats_api::delete_access_token))
+        .route("/access-tokens/:id/status", put(stats_api::update_access_token_status))
+        .route("/access-tokens/:id/channels", put(stats_api::update_access_token_channels))
         .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth))
         .with_state(state.clone());
 

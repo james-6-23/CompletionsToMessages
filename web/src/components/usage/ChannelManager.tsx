@@ -3,130 +3,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { useApiKeys } from '@/hooks/use-usage';
 import { api } from '@/lib/api';
 import type { ApiKey, Endpoint } from '@/types/usage';
 import {
   Plus, Trash2, Eye, EyeOff, Copy, FlaskConical, Check, X,
-  Loader2, KeyRound, Save, Shield, RefreshCw, ChevronDown,
+  Loader2, KeyRound, Save, RefreshCw, ChevronDown,
   ChevronRight, Globe, Pencil, Power,
 } from 'lucide-react';
 import { fmtTimestamp } from './format';
-
-/* ------------------------------------------------------------------ */
-/*  入站认证 Token 配置                                                */
-/* ------------------------------------------------------------------ */
-
-function AuthTokenConfig() {
-  const [tokenMasked, setTokenMasked] = useState<string | null>(null);
-  const [hasToken, setHasToken] = useState(false);
-  const [newToken, setNewToken] = useState('');
-  const [showInput, setShowInput] = useState(false);
-  const [generatedToken, setGeneratedToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.getAuthToken().then(r => {
-      setHasToken(r.has_token);
-      setTokenMasked(r.token_masked);
-      setLoading(false);
-    }).catch(() => setLoading(false));
-  }, []);
-
-  async function handleGenerate() {
-    try {
-      const r = await api.setAuthToken();
-      setGeneratedToken(r.token);
-      setHasToken(true);
-      setTokenMasked(r.token.length > 8 ? `${r.token.slice(0, 4)}...${r.token.slice(-4)}` : '****');
-      setShowInput(false);
-    } catch (e) {
-      console.error('生成失败:', e);
-    }
-  }
-
-  async function handleSetCustom() {
-    if (!newToken.trim()) return;
-    try {
-      const r = await api.setAuthToken(newToken.trim());
-      setGeneratedToken(r.token);
-      setHasToken(true);
-      setTokenMasked(r.token.length > 8 ? `${r.token.slice(0, 4)}...${r.token.slice(-4)}` : '****');
-      setNewToken('');
-      setShowInput(false);
-    } catch (e) {
-      console.error('设置失败:', e);
-    }
-  }
-
-  function handleCopy(text: string) {
-    navigator.clipboard.writeText(text).catch(() => {});
-  }
-
-  return (
-    <Card className="border-border/50">
-      <CardContent className="p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10">
-            <Shield className="h-4 w-4 text-emerald-500" />
-          </div>
-          <span className="text-sm font-semibold">入站认证 Token</span>
-          {hasToken && <Badge variant="outline" className="text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs">已配置</Badge>}
-          {!hasToken && !loading && <Badge variant="outline" className="text-amber-500 border-amber-500/30 text-xs">未配置</Badge>}
-        </div>
-
-        {hasToken && tokenMasked && !generatedToken && (
-          <div className="flex items-center gap-2 text-sm">
-            <code className="bg-muted px-2.5 py-1 rounded-lg font-mono text-sm">{tokenMasked}</code>
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowInput(true)}>
-              <RefreshCw className="h-3 w-3" /> 重新生成
-            </Button>
-          </div>
-        )}
-
-        {generatedToken && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <code className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-3 py-1.5 rounded-lg font-mono text-sm flex-1 break-all">{generatedToken}</code>
-              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleCopy(generatedToken)}>
-                <Copy className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <p className="text-xs text-amber-500">请立即复制此 Token，刷新后将不再显示完整值。Claude Code 客户端的 ANTHROPIC_API_KEY 填此值。</p>
-          </div>
-        )}
-
-        {!hasToken && !showInput && !generatedToken && (
-          <div className="flex gap-2">
-            <Button size="sm" onClick={handleGenerate}>
-              <RefreshCw className="h-4 w-4" /> 自动生成
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowInput(true)}>自定义</Button>
-          </div>
-        )}
-
-        {showInput && (
-          <div className="flex gap-2 mt-2">
-            <Input
-              placeholder="输入自定义 Token 或留空自动生成"
-              value={newToken}
-              onChange={e => setNewToken(e.target.value)}
-              className="flex-1"
-            />
-            <Button size="sm" onClick={newToken.trim() ? handleSetCustom : handleGenerate}>
-              {newToken.trim() ? '确认' : '自动生成'}
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowInput(false)}>取消</Button>
-          </div>
-        )}
-
-        <p className="text-xs text-muted-foreground mt-2">
-          Claude Code 客户端设置 <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">ANTHROPIC_API_KEY</code> 为此 Token
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /*  单个 Key 卡片                                                      */
@@ -575,7 +459,7 @@ function AddEndpointForm({ onAdded, onCancel }: { onAdded: () => void; onCancel:
 /*  主组件                                                             */
 /* ------------------------------------------------------------------ */
 
-export function ApiKeyManager() {
+export function ChannelManager() {
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -622,8 +506,15 @@ export function ApiKeyManager() {
 
   return (
     <div className="space-y-6">
-      {/* 入站认证 Token */}
-      <AuthTokenConfig />
+      {/* 页头 */}
+      <div>
+        <h2 className="text-[clamp(28px,4vw,38px)] font-semibold leading-[1.08] tracking-tight">
+          渠道管理
+        </h2>
+        <p className="mt-2 text-muted-foreground text-[15px] leading-relaxed">
+          管理上游 API 端点和密钥池
+        </p>
+      </div>
 
       {/* 汇总统计 */}
       <div className="flex flex-wrap items-center gap-6 text-sm text-muted-foreground">

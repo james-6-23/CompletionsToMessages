@@ -41,8 +41,8 @@ pub async fn handle_messages(
     let start_time = std::time::Instant::now();
     let request_id = uuid::Uuid::new_v4().to_string();
 
-    // 1. 认证校验
-    auth::validate_auth(&headers, &state.db, &state.config.auth_token)?;
+    // 1. 认证校验 — 返回匹配到的 access token 值（None 表示开发模式免认证）
+    let matched_token = auth::validate_auth(&headers, &state.db, &state.config.auth_token)?;
 
     let mut body = body;
 
@@ -73,9 +73,9 @@ pub async fn handle_messages(
     // 4. Anthropic → OpenAI 格式转换
     let openai_body = transform::anthropic_to_openai(body, None)?;
 
-    // 5. 选取 API Key（轮询）+ 获取上游 URL
-    let (key_id, api_key) = state.key_pool.next_key().await?;
-    let upstream_base = state.key_pool.get_upstream_url().await?;
+    // 5. 选取 API Key（基于 access token 绑定的渠道轮询）
+    let token_for_pool = matched_token.as_deref().unwrap_or("");
+    let (key_id, api_key, upstream_base) = state.key_pool.next_key(token_for_pool).await?;
 
     // 6. 构建上游请求
     let upstream_url = format!(
@@ -99,6 +99,12 @@ pub async fn handle_messages(
             let kid = kid.clone();
             tokio::spawn(async move { pool.report_result(&kid, false).await });
         }
+        // 上报访问密钥使用失败
+        if let Some(ref t) = matched_token {
+            let pool = state.key_pool.clone();
+            let t = t.clone();
+            tokio::spawn(async move { pool.report_access_token(&t, false).await });
+        }
         if e.is_timeout() {
             ProxyError::Timeout(format!("上游请求超时: {e}"))
         } else {
@@ -119,6 +125,12 @@ pub async fn handle_messages(
             let pool = state.key_pool.clone();
             let kid = kid.clone();
             tokio::spawn(async move { pool.report_result(&kid, false).await });
+        }
+        // 上报访问密钥使用失败
+        if let Some(ref t) = matched_token {
+            let pool = state.key_pool.clone();
+            let t = t.clone();
+            tokio::spawn(async move { pool.report_access_token(&t, false).await });
         }
 
         log::warn!(
@@ -177,6 +189,12 @@ pub async fn handle_messages(
             let kid = kid.clone();
             tokio::spawn(async move { pool.report_result(&kid, true).await });
         }
+        // 上报访问密钥使用成功
+        if let Some(ref t) = matched_token {
+            let pool = state.key_pool.clone();
+            let t = t.clone();
+            tokio::spawn(async move { pool.report_access_token(&t, true).await });
+        }
 
         tokio::spawn(async move {
             usage::record_request(
@@ -206,6 +224,12 @@ pub async fn handle_messages(
             let pool = state.key_pool.clone();
             let kid = kid.clone();
             tokio::spawn(async move { pool.report_result(&kid, true).await });
+        }
+        // 上报访问密钥使用成功
+        if let Some(ref t) = matched_token {
+            let pool = state.key_pool.clone();
+            let t = t.clone();
+            tokio::spawn(async move { pool.report_access_token(&t, true).await });
         }
 
         handle_non_streaming_response(

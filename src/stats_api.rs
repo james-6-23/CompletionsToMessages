@@ -2,6 +2,7 @@
 //!
 //! 提供 REST API 端点供前端仪表板查询使用统计
 
+use crate::database::mask_api_key;
 use crate::error::ProxyError;
 use crate::server::AppState;
 use axum::{
@@ -141,29 +142,134 @@ pub async fn get_config_info(
 ) -> Result<Json<Value>, ProxyError> {
     let config = &state.config;
 
-    // 从数据库获取上游 URL 和 auth_token 状态
-    let upstream_url = state.key_pool.get_upstream_url().await.unwrap_or_default();
+    // 从数据库获取端点列表和访问密钥数量
     let db = state.db.clone();
-    let db_auth = tokio::task::spawn_blocking(move || db.get_setting("auth_token"))
+    let db2 = state.db.clone();
+    let endpoints = tokio::task::spawn_blocking(move || db.list_endpoints())
         .await
         .ok()
         .and_then(|r| r.ok())
-        .flatten();
-    let has_auth = db_auth.as_ref().map_or(false, |s| !s.is_empty())
+        .unwrap_or_default();
+    let access_tokens_count = tokio::task::spawn_blocking(move || db2.count_access_tokens())
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+        .unwrap_or(0);
+
+    let has_auth = access_tokens_count > 0
         || config.auth_token.as_ref().map_or(false, |s| !s.is_empty());
 
     Ok(Json(json!({
         "listen": config.listen,
-        "upstream": {
-            "base_url": upstream_url,
-        },
+        "endpoints_count": endpoints.len(),
         "features": {
             "thinking_optimizer": config.features.thinking_optimizer,
         },
         "auth_enabled": has_auth,
-        "auth_token_masked": db_auth.as_deref().map(|t| if t.len() > 8 { format!("{}...{}", &t[..4], &t[t.len()-4..]) } else { "****".to_string() }),
+        "access_tokens_count": access_tokens_count,
         "database_path": config.database_path,
     })))
+}
+
+// ===== 上游端点管理 =====
+
+/// 添加端点请求体
+#[derive(Debug, Deserialize)]
+pub struct AddEndpointRequest {
+    pub name: String,
+    pub base_url: String,
+}
+
+/// 更新端点请求体
+#[derive(Debug, Deserialize)]
+pub struct UpdateEndpointRequest {
+    pub name: String,
+    pub base_url: String,
+}
+
+/// 更新端点状态请求体
+#[derive(Debug, Deserialize)]
+pub struct UpdateEndpointStatusRequest {
+    pub is_active: bool,
+}
+
+/// GET /api/endpoints — 列出所有上游端点
+pub async fn list_endpoints(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ProxyError> {
+    let db = Arc::clone(&state.db);
+    let endpoints = tokio::task::spawn_blocking(move || db.list_endpoints())
+        .await
+        .map_err(|e| ProxyError::Internal(format!("查询任务失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+
+    Ok(Json(json!(endpoints)))
+}
+
+/// POST /api/endpoints — 添加上游端点
+pub async fn add_endpoint(
+    State(state): State<AppState>,
+    Json(body): Json<AddEndpointRequest>,
+) -> Result<Json<Value>, ProxyError> {
+    let url = body.base_url.trim().trim_end_matches('/').to_string();
+    if url.is_empty() {
+        return Err(ProxyError::Internal("端点 URL 不能为空".to_string()));
+    }
+    let name = body.name.trim().to_string();
+    let db = Arc::clone(&state.db);
+    let row = tokio::task::spawn_blocking(move || db.add_endpoint(&name, &url))
+        .await
+        .map_err(|e| ProxyError::Internal(format!("添加端点失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+
+    Ok(Json(json!(row)))
+}
+
+/// PUT /api/endpoints/:id — 更新上游端点
+pub async fn update_endpoint(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateEndpointRequest>,
+) -> Result<Json<Value>, ProxyError> {
+    let url = body.base_url.trim().trim_end_matches('/').to_string();
+    let name = body.name.trim().to_string();
+    let db = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || db.update_endpoint(&id, &name, &url))
+        .await
+        .map_err(|e| ProxyError::Internal(format!("更新端点失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+
+    Ok(Json(json!({"ok": true})))
+}
+
+/// PUT /api/endpoints/:id/status — 更新端点启用状态
+pub async fn update_endpoint_status(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateEndpointStatusRequest>,
+) -> Result<Json<Value>, ProxyError> {
+    let db = Arc::clone(&state.db);
+    let active = body.is_active;
+    tokio::task::spawn_blocking(move || db.update_endpoint_status(&id, active))
+        .await
+        .map_err(|e| ProxyError::Internal(format!("更新端点状态失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+
+    Ok(Json(json!({"ok": true})))
+}
+
+/// DELETE /api/endpoints/:id — 删除端点（含关联 key）
+pub async fn delete_endpoint(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ProxyError> {
+    let db = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || db.delete_endpoint(&id))
+        .await
+        .map_err(|e| ProxyError::Internal(format!("删除端点失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+
+    Ok(Json(json!({"ok": true})))
 }
 
 // ===== API Key 管理端点 =====
@@ -171,6 +277,7 @@ pub async fn get_config_info(
 /// 添加密钥请求体
 #[derive(Debug, Deserialize)]
 pub struct AddKeyRequest {
+    pub endpoint_id: String,
     pub api_key: String,
     #[serde(default)]
     pub label: String,
@@ -182,12 +289,20 @@ pub struct UpdateKeyStatusRequest {
     pub is_active: bool,
 }
 
-/// GET /api/keys — 列出所有 API Key（脱敏）
+/// Key 列表查询参数
+#[derive(Debug, Deserialize)]
+pub struct ListKeysParam {
+    pub endpoint_id: Option<String>,
+}
+
+/// GET /api/keys — 列出 API Key（可选按端点过滤）
 pub async fn list_keys(
     State(state): State<AppState>,
+    Query(params): Query<ListKeysParam>,
 ) -> Result<Json<Value>, ProxyError> {
     let db = Arc::clone(&state.db);
-    let keys = tokio::task::spawn_blocking(move || db.list_api_keys())
+    let eid = params.endpoint_id.clone();
+    let keys = tokio::task::spawn_blocking(move || db.list_api_keys(eid.as_deref()))
         .await
         .map_err(|e| ProxyError::Internal(format!("查询任务失败: {e}")))?
         .map_err(|e| ProxyError::Internal(e))?;
@@ -195,15 +310,16 @@ pub async fn list_keys(
     Ok(Json(json!(keys)))
 }
 
-/// POST /api/keys — 添加 API Key
+/// POST /api/keys — 添加 API Key（绑定到端点）
 pub async fn add_key(
     State(state): State<AppState>,
     Json(body): Json<AddKeyRequest>,
 ) -> Result<Json<Value>, ProxyError> {
     let db = Arc::clone(&state.db);
+    let endpoint_id = body.endpoint_id.clone();
     let key = body.api_key.clone();
     let label = body.label.clone();
-    let row = tokio::task::spawn_blocking(move || db.add_api_key(&key, &label))
+    let row = tokio::task::spawn_blocking(move || db.add_api_key(&endpoint_id, &key, &label))
         .await
         .map_err(|e| ProxyError::Internal(format!("查询任务失败: {e}")))?
         .map_err(|e| ProxyError::Internal(e))?;
@@ -246,7 +362,7 @@ pub async fn test_key(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ProxyError> {
-    // 1. 从 DB 获取完整密钥
+    // 从 DB 获取完整密钥 + 端点 URL
     let db = Arc::clone(&state.db);
     let id_clone = id.clone();
     let full_key = tokio::task::spawn_blocking(move || db.get_api_key_full(&id_clone))
@@ -254,13 +370,13 @@ pub async fn test_key(
         .map_err(|e| ProxyError::Internal(format!("查询任务失败: {e}")))?
         .map_err(|e| ProxyError::Internal(e))?;
 
-    let Some(api_key) = full_key else {
+    let Some((api_key, upstream_base)) = full_key else {
         return Err(ProxyError::Internal("Key not found".to_string()));
     };
 
-    // 2. 获取上游 URL 并发送测试请求
-    let upstream_base = state.key_pool.get_upstream_url().await
-        .map_err(|e| ProxyError::Internal(format!("获取上游 URL 失败: {e}")))?;
+    if upstream_base.is_empty() {
+        return Err(ProxyError::Internal("密钥未绑定有效端点".to_string()));
+    }
 
     let test_body = json!({
         "model": "gpt-4o-mini",
@@ -295,100 +411,116 @@ pub async fn test_key(
     }
 }
 
-// ===== 上游 URL 管理 =====
+// ===== 访问密钥管理 =====
 
-/// 获取上游 URL
-pub async fn get_upstream_url(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ProxyError> {
-    let url = state.key_pool.get_upstream_url().await.unwrap_or_default();
-    Ok(Json(json!({"base_url": url})))
-}
-
-/// 设置上游 URL
+/// 添加访问密钥请求体
 #[derive(Debug, Deserialize)]
-pub struct SetUpstreamUrlRequest {
-    pub base_url: String,
+pub struct AddAccessTokenRequest {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub channel_ids: Vec<String>,
 }
 
-pub async fn set_upstream_url(
-    State(state): State<AppState>,
-    Json(body): Json<SetUpstreamUrlRequest>,
-) -> Result<Json<Value>, ProxyError> {
-    let url = body.base_url.trim().trim_end_matches('/').to_string();
-    if url.is_empty() {
-        return Err(ProxyError::Internal("上游 URL 不能为空".to_string()));
-    }
+/// 更新访问密钥状态请求体
+#[derive(Debug, Deserialize)]
+pub struct UpdateAccessTokenStatusRequest {
+    pub is_active: bool,
+}
 
-    let db = state.db.clone();
-    tokio::task::spawn_blocking(move || db.set_upstream_url(&url))
+/// 更新访问密钥渠道绑定请求体
+#[derive(Debug, Deserialize)]
+pub struct UpdateAccessTokenChannelsRequest {
+    pub channel_ids: Vec<String>,
+}
+
+/// GET /api/access-tokens — 列出所有访问密钥
+pub async fn list_access_tokens(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, ProxyError> {
+    let db = Arc::clone(&state.db);
+    let tokens = tokio::task::spawn_blocking(move || db.list_access_tokens())
         .await
-        .map_err(|e| ProxyError::Internal(format!("设置上游 URL 失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(format!("查询任务失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+
+    Ok(Json(json!(tokens)))
+}
+
+/// POST /api/access-tokens — 添加访问密钥
+///
+/// 返回含完整 token 的行（仅创建时展示一次）
+pub async fn add_access_token(
+    State(state): State<AppState>,
+    Json(body): Json<AddAccessTokenRequest>,
+) -> Result<Json<Value>, ProxyError> {
+    let db = Arc::clone(&state.db);
+    let name = body.name.trim().to_string();
+    let channel_ids = body.channel_ids;
+    let row = tokio::task::spawn_blocking(move || db.add_access_token(&name, &channel_ids))
+        .await
+        .map_err(|e| ProxyError::Internal(format!("添加访问密钥失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+
+    // 创建时返回完整 token（token_masked 字段此时存储完整值）
+    Ok(Json(json!({
+        "id": row.id,
+        "token": row.token_masked,
+        "token_masked": mask_api_key(&row.token_masked),
+        "name": row.name,
+        "is_active": row.is_active,
+        "total_requests": row.total_requests,
+        "failed_requests": row.failed_requests,
+        "last_used_at": row.last_used_at,
+        "channel_ids": row.channel_ids,
+        "created_at": row.created_at,
+    })))
+}
+
+/// DELETE /api/access-tokens/:id — 删除访问密钥
+pub async fn delete_access_token(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ProxyError> {
+    let db = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || db.delete_access_token(&id))
+        .await
+        .map_err(|e| ProxyError::Internal(format!("删除访问密钥失败: {e}")))?
         .map_err(|e| ProxyError::Internal(e))?;
 
     Ok(Json(json!({"ok": true})))
 }
 
-// ===== Auth Token 管理 =====
-
-/// 获取当前 auth_token（脱敏）
-pub async fn get_auth_token(
+/// PUT /api/access-tokens/:id/status — 更新访问密钥启用状态
+pub async fn update_access_token_status(
     State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateAccessTokenStatusRequest>,
 ) -> Result<Json<Value>, ProxyError> {
-    let db = state.db.clone();
-    let token = tokio::task::spawn_blocking(move || db.get_setting("auth_token"))
+    let db = Arc::clone(&state.db);
+    let active = body.is_active;
+    tokio::task::spawn_blocking(move || db.update_access_token_status(&id, active))
         .await
-        .map_err(|e| ProxyError::Internal(format!("查询失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(format!("更新访问密钥状态失败: {e}")))?
         .map_err(|e| ProxyError::Internal(e))?;
 
-    let (has_token, masked) = match token.as_deref() {
-        Some(t) if !t.is_empty() => {
-            let m = if t.len() > 8 {
-                format!("{}...{}", &t[..4], &t[t.len()-4..])
-            } else {
-                "****".to_string()
-            };
-            (true, Some(m))
-        }
-        _ => (false, None),
-    };
-
-    Ok(Json(json!({
-        "has_token": has_token,
-        "token_masked": masked,
-    })))
+    Ok(Json(json!({"ok": true})))
 }
 
-/// 设置/生成 auth_token
-#[derive(Debug, Deserialize)]
-pub struct SetAuthTokenRequest {
-    /// 如果为空则自动生成
-    #[serde(default)]
-    pub token: String,
-}
-
-pub async fn set_auth_token(
+/// PUT /api/access-tokens/:id/channels — 更新访问密钥绑定的渠道
+pub async fn update_access_token_channels(
     State(state): State<AppState>,
-    Json(body): Json<SetAuthTokenRequest>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateAccessTokenChannelsRequest>,
 ) -> Result<Json<Value>, ProxyError> {
-    let token = if body.token.trim().is_empty() {
-        // 自动生成
-        format!("sk-proxy-{}", uuid::Uuid::new_v4().to_string().replace('-', ""))
-    } else {
-        body.token.trim().to_string()
-    };
-
-    let db = state.db.clone();
-    let t = token.clone();
-    tokio::task::spawn_blocking(move || db.set_setting("auth_token", &t))
+    let db = Arc::clone(&state.db);
+    let channel_ids = body.channel_ids;
+    tokio::task::spawn_blocking(move || db.update_access_token_channels(&id, &channel_ids))
         .await
-        .map_err(|e| ProxyError::Internal(format!("保存失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(format!("更新访问密钥渠道绑定失败: {e}")))?
         .map_err(|e| ProxyError::Internal(e))?;
 
-    Ok(Json(json!({
-        "ok": true,
-        "token": token,
-    })))
+    Ok(Json(json!({"ok": true})))
 }
 
 // ===== 管理登录验证 =====
@@ -405,7 +537,7 @@ pub async fn verify_admin_secret(
 ) -> Json<Value> {
     let valid = match &state.admin_secret {
         Some(secret) => body.secret == *secret,
-        None => true, // 未设置 ADMIN_SECRET 时任何密钥都通过
+        None => true,
     };
     Json(json!({
         "valid": valid,
