@@ -8,8 +8,8 @@ import { toast } from '@/components/Toast';
 import type { ApiKey, Endpoint } from '@/types/usage';
 import {
   Plus, Trash2, Eye, EyeOff, Copy, FlaskConical, Check, X,
-  Loader2, KeyRound, Globe, Pencil,
-  Search, MoreHorizontal, MinusCircle,
+  Loader2, KeyRound, Globe, Pencil, Zap,
+  Search, MoreHorizontal, MinusCircle, Download, RotateCcw,
 } from 'lucide-react';
 import { fmtTimestamp } from './format';
 
@@ -280,7 +280,9 @@ function ChannelDetailPanel({
   const [editUrl, setEditUrl] = useState(endpoint.base_url);
   const [editWebsite, setEditWebsite] = useState(endpoint.website_url || '');
   const [editLogo, setEditLogo] = useState(endpoint.logo_url || '');
+  const [editProxy, setEditProxy] = useState(endpoint.proxy_url || '');
   const [saving, setSaving] = useState(false);
+  const [testingProxy, setTestingProxy] = useState(false);
 
   /* 添加密钥弹窗 */
   const [showAddKey, setShowAddKey] = useState(false);
@@ -307,9 +309,11 @@ function ChannelDetailPanel({
     }).catch(() => {});
   }, [endpoint.id]);
 
-  /* Key 搜索过滤 */
+  /* Key 搜索过滤 + 分页 */
   const [searchKey, setSearchKey] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'valid' | 'invalid'>('all');
+  const [keyPage, setKeyPage] = useState(1);
+  const KEY_PAGE_SIZE = 30;
 
   /* 详情展开 */
   const [showDetails, setShowDetails] = useState(false);
@@ -321,6 +325,7 @@ function ChannelDetailPanel({
     setEditUrl(endpoint.base_url);
     setEditWebsite(endpoint.website_url || '');
     setEditLogo(endpoint.logo_url || '');
+    setEditProxy(endpoint.proxy_url || '');
     setSearchKey('');
     setFilterStatus('all');
     setTestResults({});
@@ -357,6 +362,7 @@ function ChannelDetailPanel({
         base_url: editUrl.trim(),
         website_url: editWebsite.trim(),
         logo_url: editLogo.trim(),
+        proxy_url: editProxy.trim(),
       });
       setShowEdit(false);
       onRefresh();
@@ -382,27 +388,14 @@ function ChannelDetailPanel({
     if (lines.length === 0) return;
     setAdding(true);
     try {
-      for (const line of lines) {
-        await api.addApiKey({ endpoint_id: endpoint.id, api_key: line, label: '' });
-      }
+      const result = await api.batchAddApiKeys({ endpoint_id: endpoint.id, api_keys: lines });
+      toast(`已添加 ${result.count} 个密钥`);
       setNewKeysText('');
       setShowAddKey(false);
       onRefresh();
-
-      // 首次添加 key 后自动同步模型列表
-      if (endpoint.models.length === 0) {
-        try {
-          const result = await api.syncEndpointModels(endpoint.id);
-          if (result.count > 0) {
-            toast(`已自动同步 ${result.count} 个模型`);
-            onRefresh();
-          }
-        } catch {
-          // 同步失败不影响主流程
-        }
-      }
     } catch (e) {
       console.error('添加密钥失败:', e);
+      toast('添加密钥失败', 'error');
     } finally {
       setAdding(false);
     }
@@ -446,16 +439,92 @@ function ChannelDetailPanel({
     try {
       const result = await api.testApiKey(id, testModel || undefined);
       setTestResults(prev => ({ ...prev, [id]: result.valid }));
-      toast(
-        result.valid ? `测试通过 [${modelName}]` : `测试失败 [${modelName}]`,
-        result.valid ? 'success' : 'error',
-      );
+      if (result.valid) {
+        toast(`测试通过 [${modelName}]`, 'success');
+      } else {
+        const detail = result.error
+          ? `${result.status || 'err'}: ${result.error.slice(0, 150)}`
+          : `状态码 ${result.status}`;
+        toast(`测试失败 [${modelName}] — ${detail}`, 'error');
+      }
     } catch {
       setTestResults(prev => ({ ...prev, [id]: false }));
-      toast(`测试失败 [${modelName}]`, 'error');
+      toast(`测试失败 [${modelName}] — 网络错误`, 'error');
     } finally {
       setTestingKeys(prev => { const s = new Set(prev); s.delete(id); return s; });
     }
+  }
+
+  /* 批量测试：并发 5 个一批，避免压垮上游 */
+  const [batchTesting, setBatchTesting] = useState(false);
+  async function handleBatchTest() {
+    const activeKeys = keys.filter(k => k.is_active);
+    if (activeKeys.length === 0) { toast('没有有效密钥可测试', 'error'); return; }
+    const modelName = testModel || '默认模型';
+    setBatchTesting(true);
+    setTestResults({});
+    let passed = 0;
+    let failed = 0;
+    const CONCURRENCY = 5;
+
+    for (let i = 0; i < activeKeys.length; i += CONCURRENCY) {
+      const batch = activeKeys.slice(i, i + CONCURRENCY);
+      batch.forEach(k => setTestingKeys(prev => new Set(prev).add(k.id)));
+
+      const results = await Promise.allSettled(
+        batch.map(async k => {
+          const result = await api.testApiKey(k.id, testModel || undefined);
+          setTestResults(prev => ({ ...prev, [k.id]: result.valid }));
+          return result.valid;
+        })
+      );
+
+      batch.forEach(k => setTestingKeys(prev => { const s = new Set(prev); s.delete(k.id); return s; }));
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value) passed++; else failed++;
+      }
+    }
+
+    setBatchTesting(false);
+    toast(`批量测试完成 [${modelName}]：${passed} 通过，${failed} 失败`, passed > 0 ? 'success' : 'error');
+    onRefresh();
+  }
+
+  /* 更多操作菜单 */
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+
+  async function exportKeysToClipboard(status?: string) {
+    setShowMoreMenu(false);
+    try {
+      const result = await api.exportKeys({ endpoint_id: endpoint.id, status: status || 'all' });
+      if (result.keys.length === 0) { toast('没有可导出的密钥'); return; }
+      copyToClipboard(result.keys.join('\n'));
+      toast(`已复制 ${result.keys.length} 个密钥到剪贴板`);
+    } catch { toast('导出失败', 'error'); }
+  }
+
+  async function batchDeleteKeys(status: string) {
+    setShowMoreMenu(false);
+    const label = status === 'all' ? '所有' : status === 'valid' ? '有效' : '无效';
+    const count = status === 'all' ? keys.length : status === 'valid' ? keys.filter(k => k.is_active).length : keys.filter(k => !k.is_active).length;
+    if (count === 0) { toast(`没有${label}密钥`); return; }
+    if (!confirm(`确定清空 ${count} 个${label}密钥？此操作不可撤销！`)) return;
+    try {
+      const result = await api.batchDeleteApiKeysPost({ endpoint_id: endpoint.id, status });
+      toast(`已删除 ${result.count} 个密钥`);
+      setKeyPage(1);
+      onRefresh();
+    } catch { toast('删除失败', 'error'); }
+  }
+
+  async function restoreInvalidKeys() {
+    setShowMoreMenu(false);
+    try {
+      const result = await api.batchRestoreKeys({ endpoint_id: endpoint.id });
+      if (result.count === 0) { toast('没有失效密钥需要恢复'); return; }
+      toast(`已恢复 ${result.count} 个密钥`);
+      onRefresh();
+    } catch { toast('恢复失败', 'error'); }
   }
 
   async function handleCopyKey(id: string) {
@@ -491,6 +560,11 @@ function ChannelDetailPanel({
     return matchSearch && matchStatus;
   });
 
+  /* 分页 */
+  const keyTotalPages = Math.ceil(filteredKeys.length / KEY_PAGE_SIZE);
+  const safeKeyPage = Math.min(keyPage, Math.max(1, keyTotalPages));
+  const pagedKeys = filteredKeys.slice((safeKeyPage - 1) * KEY_PAGE_SIZE, safeKeyPage * KEY_PAGE_SIZE);
+
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
       {/* 顶部：标题 + URL + 操作图标 */}
@@ -525,7 +599,7 @@ function ChannelDetailPanel({
           </button>
           <button
             className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-            onClick={() => { setEditName(endpoint.name); setEditUrl(endpoint.base_url); setEditWebsite(endpoint.website_url || ''); setEditLogo(endpoint.logo_url || ''); setShowEdit(true); }}
+            onClick={() => { setEditName(endpoint.name); setEditUrl(endpoint.base_url); setEditWebsite(endpoint.website_url || ''); setEditLogo(endpoint.logo_url || ''); setEditProxy(endpoint.proxy_url || ''); setShowEdit(true); }}
             title="编辑"
           >
             <Pencil className="h-4 w-4" />
@@ -627,19 +701,40 @@ function ChannelDetailPanel({
           <Plus className="h-3.5 w-3.5" /> 添加密钥
         </Button>
 
-        {/* 删除密钥（批量，示意） */}
+        {/* 批量测试 */}
+        <Button
+          size="sm"
+          variant="outline"
+          className="border-blue-300 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 h-8 gap-1.5 rounded-full px-4 text-xs font-semibold"
+          onClick={handleBatchTest}
+          disabled={batchTesting || keys.filter(k => k.is_active).length === 0}
+        >
+          {batchTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />}
+          {batchTesting ? '测试中...' : '批量测试'}
+        </Button>
+
+        {/* 删除失效密钥 */}
         <Button
           size="sm"
           variant="outline"
           className="border-red-300 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 h-8 gap-1.5 rounded-full px-4 text-xs font-semibold"
+          onClick={async () => {
+            const invalidKeys = keys.filter(k => !k.is_active);
+            if (invalidKeys.length === 0) { toast('没有失效密钥'); return; }
+            if (!confirm(`确定删除 ${invalidKeys.length} 个失效密钥？`)) return;
+            for (const k of invalidKeys) { await api.deleteApiKey(k.id).catch(() => {}); }
+            toast(`已删除 ${invalidKeys.length} 个失效密钥`);
+            onRefresh();
+          }}
+          disabled={keys.filter(k => !k.is_active).length === 0}
         >
-          <MinusCircle className="h-3.5 w-3.5" /> 删除密钥
+          <MinusCircle className="h-3.5 w-3.5" /> 删除失效
         </Button>
 
         <div className="flex-1" />
 
         {/* 状态筛选 */}
-        <Select value={filterStatus} onValueChange={v => setFilterStatus(v as 'all' | 'valid' | 'invalid')}>
+        <Select value={filterStatus} onValueChange={v => { setFilterStatus(v as 'all' | 'valid' | 'invalid'); setKeyPage(1); }}>
           <SelectTrigger className="w-24 h-8 text-xs rounded-lg">
             <SelectValue />
           </SelectTrigger>
@@ -655,15 +750,54 @@ function ChannelDetailPanel({
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
             value={searchKey}
-            onChange={e => setSearchKey(e.target.value)}
+            onChange={e => { setSearchKey(e.target.value); setKeyPage(1); }}
             placeholder="Key 精确匹配"
             className="h-8 pl-8 pr-3 text-xs w-40 rounded-lg"
           />
         </div>
         <Button size="sm" className="h-8 text-xs px-3 rounded-lg">搜索</Button>
-        <button className="p-2 rounded-lg text-muted-foreground hover:bg-muted/60 transition-colors">
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
+        <div className="relative">
+          <button
+            className="p-2 rounded-lg text-muted-foreground hover:bg-muted/60 transition-colors"
+            onClick={() => setShowMoreMenu(!showMoreMenu)}
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+          {showMoreMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
+              <div className="absolute right-0 top-full mt-1 z-50 w-48 rounded-xl border border-border bg-card shadow-xl py-1 text-xs">
+                <button onClick={() => exportKeysToClipboard('all')} className="w-full px-3 py-2 text-left hover:bg-muted/60 flex items-center gap-2">
+                  <Download className="h-3.5 w-3.5" /> 导出所有密钥
+                </button>
+                <button onClick={() => exportKeysToClipboard('valid')} className="w-full px-3 py-2 text-left hover:bg-muted/60 flex items-center gap-2">
+                  <Download className="h-3.5 w-3.5" /> 导出有效密钥
+                </button>
+                <button onClick={() => exportKeysToClipboard('invalid')} className="w-full px-3 py-2 text-left hover:bg-muted/60 flex items-center gap-2">
+                  <Download className="h-3.5 w-3.5" /> 导出无效密钥
+                </button>
+                <div className="border-t border-border/50 my-1" />
+                <button onClick={restoreInvalidKeys} className="w-full px-3 py-2 text-left hover:bg-muted/60 flex items-center gap-2">
+                  <RotateCcw className="h-3.5 w-3.5" /> 恢复所有无效密钥
+                </button>
+                <div className="border-t border-border/50 my-1" />
+                <button onClick={() => batchDeleteKeys('invalid')} className="w-full px-3 py-2 text-left hover:bg-muted/60 flex items-center gap-2 text-red-500">
+                  <Trash2 className="h-3.5 w-3.5" /> 清空所有无效密钥
+                </button>
+                <button onClick={() => batchDeleteKeys('all')} className="w-full px-3 py-2 text-left hover:bg-muted/60 flex items-center gap-2 text-red-600 font-semibold">
+                  <Trash2 className="h-3.5 w-3.5" /> 清空所有密钥
+                </button>
+                <div className="border-t border-border/50 my-1" />
+                <button onClick={() => { setShowMoreMenu(false); handleBatchTest(); }} className="w-full px-3 py-2 text-left hover:bg-muted/60 flex items-center gap-2">
+                  <FlaskConical className="h-3.5 w-3.5" /> 验证所有密钥
+                </button>
+                <button onClick={() => { setShowMoreMenu(false); /* 只测有效 */ const orig = handleBatchTest; orig(); }} className="w-full px-3 py-2 text-left hover:bg-muted/60 flex items-center gap-2">
+                  <FlaskConical className="h-3.5 w-3.5" /> 验证有效密钥
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* 密钥网格 */}
@@ -678,22 +812,44 @@ function ChannelDetailPanel({
             </p>
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {filteredKeys.map(key => (
-              <KeyCard
-                key={key.id}
-                apiKey={key}
-                isTesting={testingKeys.has(key.id)}
-                testResult={testResults[key.id]}
-                isRevealed={revealedKeys.has(key.id)}
-                onToggle={() => handleToggleKey(key.id, key.is_active)}
-                onDelete={() => handleDeleteKey(key.id)}
-                onTest={() => handleTestKey(key.id)}
-                onCopy={() => handleCopyKey(key.id)}
-                onToggleReveal={() => toggleRevealKey(key.id)}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {pagedKeys.map(key => (
+                <KeyCard
+                  key={key.id}
+                  apiKey={key}
+                  isTesting={testingKeys.has(key.id)}
+                  testResult={testResults[key.id]}
+                  isRevealed={revealedKeys.has(key.id)}
+                  onToggle={() => handleToggleKey(key.id, key.is_active)}
+                  onDelete={() => handleDeleteKey(key.id)}
+                  onTest={() => handleTestKey(key.id)}
+                  onCopy={() => handleCopyKey(key.id)}
+                  onToggleReveal={() => toggleRevealKey(key.id)}
+                />
+              ))}
+            </div>
+            {/* 分页 */}
+            {keyTotalPages > 1 && (
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-border/50">
+                <span className="text-xs text-muted-foreground">
+                  共 {filteredKeys.length} 个密钥，第 {safeKeyPage}/{keyTotalPages} 页
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    disabled={safeKeyPage <= 1}
+                    onClick={() => setKeyPage(p => Math.max(1, p - 1))}
+                    className="h-7 px-2 text-xs rounded border border-border bg-background text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+                  >上一页</button>
+                  <button
+                    disabled={safeKeyPage >= keyTotalPages}
+                    onClick={() => setKeyPage(p => p + 1)}
+                    className="h-7 px-2 text-xs rounded border border-border bg-background text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+                  >下一页</button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -815,6 +971,41 @@ function ChannelDetailPanel({
                   </div>
                 </div>
               )}
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  代理地址
+                </label>
+                <Input
+                  placeholder="http://127.0.0.1:7890 或 socks5://..."
+                  value={editProxy}
+                  onChange={e => setEditProxy(e.target.value)}
+                  className="flex-1 h-9 font-mono text-sm"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!editProxy.trim() || testingProxy}
+                  className="shrink-0 h-9 px-3"
+                  onClick={async () => {
+                    setTestingProxy(true);
+                    try {
+                      const res = await api.testProxy(editProxy.trim());
+                      if (res.ok) {
+                        toast(`延迟 ${res.latency_ms}ms｜${res.location}｜IP ${res.ip}`, 'success');
+                      } else {
+                        toast(res.error || '代理测试失败', 'error');
+                      }
+                    } catch {
+                      toast('代理测试请求失败', 'error');
+                    } finally {
+                      setTestingProxy(false);
+                    }
+                  }}
+                >
+                  {testingProxy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                  <span className="ml-1">测试</span>
+                </Button>
+              </div>
             </div>
             <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border/60">
               <Button variant="outline" onClick={() => setShowEdit(false)} className="px-5">取消</Button>
@@ -843,14 +1034,16 @@ function AddEndpointModal({ onAdded, onCancel }: { onAdded: () => void; onCancel
   const [baseUrl, setBaseUrl] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [logoUrl, setLogoUrl] = useState('');
+  const [proxyUrl, setProxyUrl] = useState('');
   const [testModel, setTestModel] = useState('');
   const [adding, setAdding] = useState(false);
+  const [testingProxy, setTestingProxy] = useState(false);
 
   async function handleSubmit() {
     if (!name.trim() || !baseUrl.trim()) return;
     setAdding(true);
     try {
-      await api.addEndpoint({ name: name.trim(), base_url: baseUrl.trim(), website_url: websiteUrl.trim(), logo_url: logoUrl.trim() });
+      await api.addEndpoint({ name: name.trim(), base_url: baseUrl.trim(), website_url: websiteUrl.trim(), logo_url: logoUrl.trim(), proxy_url: proxyUrl.trim() });
       onAdded();
     } catch (e) {
       console.error('添加端点失败:', e);
@@ -952,6 +1145,43 @@ function AddEndpointModal({ onAdded, onCancel }: { onAdded: () => void; onCancel
                   </div>
                 </div>
               )}
+
+              {/* 代理地址 */}
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  代理地址
+                </label>
+                <Input
+                  placeholder="http://127.0.0.1:7890"
+                  value={proxyUrl}
+                  onChange={e => setProxyUrl(e.target.value)}
+                  className="flex-1 h-9 font-mono text-sm"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!proxyUrl.trim() || testingProxy}
+                  className="shrink-0 h-9 px-3"
+                  onClick={async () => {
+                    setTestingProxy(true);
+                    try {
+                      const res = await api.testProxy(proxyUrl.trim());
+                      if (res.ok) {
+                        toast(`延迟 ${res.latency_ms}ms｜${res.location}｜IP ${res.ip}`, 'success');
+                      } else {
+                        toast(res.error || '代理测试失败', 'error');
+                      }
+                    } catch {
+                      toast('代理测试请求失败', 'error');
+                    } finally {
+                      setTestingProxy(false);
+                    }
+                  }}
+                >
+                  {testingProxy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                  <span className="ml-1">测试</span>
+                </Button>
+              </div>
 
               {/* 测试模型 */}
               <div className="flex items-center gap-4">

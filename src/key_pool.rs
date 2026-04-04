@@ -71,7 +71,7 @@ impl KeyPool {
         &self,
         inbound_token: &str,
         model: Option<&str>,
-    ) -> Result<(Option<String>, String, String, String), ProxyError> {
+    ) -> Result<(Option<String>, String, String, String, String), ProxyError> {
         let db = self.db.clone();
         let token = inbound_token.to_string();
         let keys = tokio::task::spawn_blocking(move || db.get_active_keys_for_token(&token))
@@ -84,7 +84,7 @@ impl KeyPool {
             if let Some(ref upstream) = self.config.upstream {
                 if let Some(ref key) = upstream.api_key {
                     if !key.is_empty() && !upstream.base_url.is_empty() {
-                        return Ok((None, key.clone(), upstream.base_url.clone(), String::new()));
+                        return Ok((None, key.clone(), upstream.base_url.clone(), String::new(), String::new()));
                     }
                 }
             }
@@ -153,15 +153,45 @@ impl KeyPool {
             selected.api_key.clone(),
             selected.base_url.clone(),
             selected.endpoint_id.clone(),
+            selected.proxy_url.clone(),
         ))
     }
 
     /// 上报密钥使用结果，更新统计和熔断器状态
     ///
     /// `status_code`: 上游 HTTP 状态码，None 表示网络错误（无响应）。
-    /// 触发熔断的条件：5xx 服务端错误、429/529 限流、402 余额不足、网络错误。
-    /// 其他 4xx 客户端错误视为密钥正常，不计入熔断失败。
+    /// - 401：key 无效，直接标记为失效（数据库 is_active=0）
+    /// - 402：余额不足，触发熔断
+    /// - 429/529：限流/过载，触发熔断
+    /// - 5xx：服务端错误，触发熔断
+    /// - 其他 4xx：不触发熔断
     pub async fn report_result(&self, key_id: &str, success: bool, status_code: Option<u16>) {
+        // 401 直接标记 key 失效
+        if status_code == Some(401) {
+            log::warn!(
+                "[cc-proxy] 密钥 {} 认证失败 (401)，标记为失效",
+                &key_id[..key_id.len().min(8)]
+            );
+            self.circuit_breaker.record_failure(key_id);
+            let db = self.db.clone();
+            let kid = key_id.to_string();
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Err(e) = db.update_api_key_status(&kid, false) {
+                    log::warn!("[cc-proxy] 标记密钥失效失败: {e}");
+                }
+            })
+            .await;
+            let db = self.db.clone();
+            let kid = key_id.to_string();
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Err(e) = db.increment_key_stats(&kid, false) {
+                    log::warn!("[cc-proxy] 更新 key 统计失败: {e}");
+                }
+            })
+            .await;
+            return;
+        }
+
         // 更新熔断器状态：根据状态码智能判断
         if success {
             self.circuit_breaker.record_success(key_id);

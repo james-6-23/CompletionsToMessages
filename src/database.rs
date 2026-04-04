@@ -144,6 +144,7 @@ pub struct EndpointRow {
     pub base_url: String,
     pub website_url: String,
     pub logo_url: String,
+    pub proxy_url: String,
     pub is_active: bool,
     pub key_count: u64,
     pub models: Vec<String>,
@@ -171,6 +172,7 @@ pub struct ActiveKey {
     pub api_key: String,
     pub endpoint_id: String,
     pub base_url: String,
+    pub proxy_url: String,
     /// 端点支持的模型列表（空 = 不限制，支持所有模型）
     pub endpoint_models: Vec<String>,
 }
@@ -356,6 +358,29 @@ impl Database {
                 )
                 .map_err(|e| format!("迁移 upstream_endpoints 添加 logo_url 列失败: {e}"))?;
                 log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 logo_url 列");
+            }
+        }
+
+        // 迁移：为 upstream_endpoints 添加 proxy_url 列
+        {
+            let has_col: bool = conn
+                .prepare("PRAGMA table_info(upstream_endpoints)")
+                .and_then(|mut stmt| {
+                    let names: Vec<String> = stmt
+                        .query_map([], |row| row.get::<_, String>(1))
+                        .unwrap()
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    Ok(names.contains(&"proxy_url".to_string()))
+                })
+                .unwrap_or(false);
+
+            if !has_col {
+                conn.execute_batch(
+                    "ALTER TABLE upstream_endpoints ADD COLUMN proxy_url TEXT NOT NULL DEFAULT '';",
+                )
+                .map_err(|e| format!("迁移 upstream_endpoints 添加 proxy_url 列失败: {e}"))?;
+                log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 proxy_url 列");
             }
         }
 
@@ -989,7 +1014,7 @@ impl Database {
             .prepare(
                 "SELECT e.id, e.name, e.base_url, e.is_active, e.created_at,
                     (SELECT COUNT(*) FROM api_keys k WHERE k.endpoint_id = e.id) as key_count,
-                    e.models, e.website_url, e.logo_url
+                    e.models, e.website_url, e.logo_url, e.proxy_url
             FROM upstream_endpoints e
             ORDER BY e.created_at ASC",
             )
@@ -1010,6 +1035,7 @@ impl Database {
                     created_at: row.get(4)?,
                     website_url: row.get::<_, String>(7).unwrap_or_default(),
                     logo_url: row.get::<_, String>(8).unwrap_or_default(),
+                    proxy_url: row.get::<_, String>(9).unwrap_or_default(),
                 })
             })
             .map_err(|e| format!("查询端点失败: {e}"))?;
@@ -1028,14 +1054,15 @@ impl Database {
         base_url: &str,
         website_url: &str,
         logo_url: &str,
+        proxy_url: &str,
     ) -> Result<EndpointRow, String> {
         let conn = self.writer.lock();
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = chrono::Utc::now().timestamp();
 
         conn.execute(
-            "INSERT INTO upstream_endpoints (id, name, base_url, website_url, logo_url, is_active, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
-            params![id, name, base_url, website_url, logo_url, created_at],
+            "INSERT INTO upstream_endpoints (id, name, base_url, website_url, logo_url, proxy_url, is_active, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7)",
+            params![id, name, base_url, website_url, logo_url, proxy_url, created_at],
         ).map_err(|e| format!("插入端点失败: {e}"))?;
 
         Ok(EndpointRow {
@@ -1044,6 +1071,7 @@ impl Database {
             base_url: base_url.to_string(),
             website_url: website_url.to_string(),
             logo_url: logo_url.to_string(),
+            proxy_url: proxy_url.to_string(),
             is_active: true,
             key_count: 0,
             models: vec![],
@@ -1059,11 +1087,12 @@ impl Database {
         base_url: &str,
         website_url: &str,
         logo_url: &str,
+        proxy_url: &str,
     ) -> Result<(), String> {
         let conn = self.writer.lock();
         conn.execute(
-            "UPDATE upstream_endpoints SET name = ?1, base_url = ?2, website_url = ?3, logo_url = ?4 WHERE id = ?5",
-            params![name, base_url, website_url, logo_url, id],
+            "UPDATE upstream_endpoints SET name = ?1, base_url = ?2, website_url = ?3, logo_url = ?4, proxy_url = ?5 WHERE id = ?6",
+            params![name, base_url, website_url, logo_url, proxy_url, id],
         ).map_err(|e| format!("更新端点失败: {e}"))?;
         Ok(())
     }
@@ -1201,12 +1230,126 @@ impl Database {
         })
     }
 
+    /// 批量添加 API Key（单事务，高性能）
+    pub fn add_api_keys_batch(
+        &self,
+        endpoint_id: &str,
+        api_keys: &[String],
+    ) -> Result<Vec<ApiKeyRow>, String> {
+        let conn = self.writer.lock();
+        let created_at = chrono::Utc::now().timestamp();
+
+        conn.execute_batch("BEGIN IMMEDIATE")
+            .map_err(|e| format!("开始事务失败: {e}"))?;
+
+        let mut rows = Vec::with_capacity(api_keys.len());
+        for key in api_keys {
+            let key = key.trim();
+            if key.is_empty() {
+                continue;
+            }
+            let id = uuid::Uuid::new_v4().to_string();
+            if let Err(e) = conn.execute(
+                "INSERT INTO api_keys (id, endpoint_id, api_key, label, is_active, total_requests, failed_requests, last_used_at, created_at)
+                VALUES (?1, ?2, ?3, '', 1, 0, 0, NULL, ?4)",
+                params![id, endpoint_id, key, created_at],
+            ) {
+                conn.execute_batch("ROLLBACK").ok();
+                return Err(format!("批量插入 api_key 失败: {e}"));
+            }
+            rows.push(ApiKeyRow {
+                id,
+                endpoint_id: endpoint_id.to_string(),
+                api_key_masked: mask_api_key(key),
+                label: String::new(),
+                is_active: true,
+                total_requests: 0,
+                failed_requests: 0,
+                last_used_at: None,
+                created_at,
+            });
+        }
+
+        conn.execute_batch("COMMIT")
+            .map_err(|e| format!("提交事务失败: {e}"))?;
+
+        Ok(rows)
+    }
+
     /// 删除 API Key
     pub fn delete_api_key(&self, id: &str) -> Result<(), String> {
         let conn = self.writer.lock();
         conn.execute("DELETE FROM api_keys WHERE id = ?1", params![id])
             .map_err(|e| format!("删除 api_key 失败: {e}"))?;
         Ok(())
+    }
+
+    /// 批量删除端点下的密钥（可按状态过滤）
+    pub fn delete_keys_by_endpoint(
+        &self,
+        endpoint_id: &str,
+        status_filter: Option<bool>,
+    ) -> Result<u64, String> {
+        let conn = self.writer.lock();
+        let affected = if let Some(active) = status_filter {
+            conn.execute(
+                "DELETE FROM api_keys WHERE endpoint_id = ?1 AND is_active = ?2",
+                params![endpoint_id, active as i32],
+            )
+        } else {
+            conn.execute(
+                "DELETE FROM api_keys WHERE endpoint_id = ?1",
+                params![endpoint_id],
+            )
+        }
+        .map_err(|e| format!("批量删除密钥失败: {e}"))?;
+        Ok(affected as u64)
+    }
+
+    /// 批量恢复端点下的失效密钥
+    pub fn restore_invalid_keys(&self, endpoint_id: &str) -> Result<u64, String> {
+        let conn = self.writer.lock();
+        let affected = conn
+            .execute(
+                "UPDATE api_keys SET is_active = 1 WHERE endpoint_id = ?1 AND is_active = 0",
+                params![endpoint_id],
+            )
+            .map_err(|e| format!("恢复失效密钥失败: {e}"))?;
+        Ok(affected as u64)
+    }
+
+    /// 导出端点下的密钥（完整值），可按状态过滤
+    pub fn export_keys(
+        &self,
+        endpoint_id: &str,
+        status_filter: Option<bool>,
+    ) -> Result<Vec<String>, String> {
+        let conn = self.reader.get().lock();
+        let mut result = Vec::new();
+
+        if let Some(active) = status_filter {
+            let mut stmt = conn
+                .prepare("SELECT api_key FROM api_keys WHERE endpoint_id = ?1 AND is_active = ?2 ORDER BY created_at ASC")
+                .map_err(|e| format!("准备导出查询失败: {e}"))?;
+            let rows = stmt
+                .query_map(params![endpoint_id, active as i32], |row| row.get::<_, String>(0))
+                .map_err(|e| format!("导出密钥失败: {e}"))?;
+            for row in rows {
+                result.push(row.map_err(|e| format!("读取密钥失败: {e}"))?);
+            }
+        } else {
+            let mut stmt = conn
+                .prepare("SELECT api_key FROM api_keys WHERE endpoint_id = ?1 ORDER BY created_at ASC")
+                .map_err(|e| format!("准备导出查询失败: {e}"))?;
+            let rows = stmt
+                .query_map(params![endpoint_id], |row| row.get::<_, String>(0))
+                .map_err(|e| format!("导出密钥失败: {e}"))?;
+            for row in rows {
+                result.push(row.map_err(|e| format!("读取密钥失败: {e}"))?);
+            }
+        }
+
+        Ok(result)
     }
 
     /// 更新 API Key 启用状态
@@ -1253,7 +1396,7 @@ impl Database {
         let conn = self.reader.get().lock();
         let mut stmt = conn
             .prepare(
-                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models
+                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url
             FROM api_keys k
             INNER JOIN upstream_endpoints e ON k.endpoint_id = e.id
             WHERE k.is_active = 1 AND e.is_active = 1
@@ -1272,6 +1415,7 @@ impl Database {
                     api_key: row.get(1)?,
                     endpoint_id: row.get(2)?,
                     base_url: row.get(3)?,
+                    proxy_url: row.get::<_, String>(5).unwrap_or_default(),
                     endpoint_models,
                 })
             })
@@ -1554,7 +1698,7 @@ impl Database {
         let conn = self.reader.get().lock();
         let mut stmt = conn
             .prepare(
-                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models
+                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url
             FROM api_keys k
             INNER JOIN upstream_endpoints e ON k.endpoint_id = e.id
             INNER JOIN access_token_channels atc ON atc.channel_id = e.id
@@ -1575,6 +1719,7 @@ impl Database {
                     api_key: row.get(1)?,
                     endpoint_id: row.get(2)?,
                     base_url: row.get(3)?,
+                    proxy_url: row.get::<_, String>(5).unwrap_or_default(),
                     endpoint_models,
                 })
             })

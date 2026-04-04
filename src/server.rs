@@ -22,6 +22,8 @@ use tower_http::services::ServeDir;
 pub struct AppState {
     pub config: Arc<ProxyConfig>,
     pub http_client: reqwest::Client,
+    /// 代理 HTTP 客户端缓存：proxy_url → Client
+    pub proxy_clients: Arc<dashmap::DashMap<String, reqwest::Client>>,
     pub db: Arc<Database>,
     pub key_pool: Arc<KeyPool>,
     pub admin_secret: Option<String>,
@@ -94,6 +96,7 @@ pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> 
     let state = AppState {
         config: config.clone(),
         http_client,
+        proxy_clients: Arc::new(dashmap::DashMap::new()),
         db,
         key_pool,
         admin_secret: admin_secret.clone(),
@@ -112,10 +115,14 @@ pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> 
         .route("/keys/:id/status", put(stats_api::update_key_status))
         .route("/keys/:id/full", get(stats_api::get_key_full))
         .route("/keys/:id/test", post(stats_api::test_key))
+        .route("/keys/batch", post(stats_api::batch_add_keys).delete(stats_api::batch_delete_keys))
+        .route("/keys/restore", post(stats_api::batch_restore_keys))
+        .route("/keys/export", post(stats_api::export_keys))
         .route(
             "/endpoints",
             get(stats_api::list_endpoints).post(stats_api::add_endpoint),
         )
+        .route("/endpoints/test-proxy", post(stats_api::test_proxy))
         .route(
             "/endpoints/:id",
             put(stats_api::update_endpoint).delete(stats_api::delete_endpoint),

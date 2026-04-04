@@ -31,7 +31,7 @@ pub async fn health_check() -> (StatusCode, Json<Value>) {
 
 /// 判断 HTTP 状态码是否可重试
 fn is_retryable_status(status: u16) -> bool {
-    status >= 500 || status == 429 || status == 529 || status == 402
+    status >= 500 || status == 401 || status == 402 || status == 429 || status == 529
 }
 
 /// 解析上下文窗口溢出错误: "input length and `max_tokens` exceed context limit: X + Y > Z"
@@ -167,7 +167,7 @@ pub async fn handle_messages(
         }
 
         // 每次尝试都选取新密钥（按请求模型筛选渠道）
-        let (key_id, api_key, upstream_base, channel_id) = state
+        let (key_id, api_key, upstream_base, channel_id, proxy_url) = state
             .key_pool
             .next_key(token_for_pool, Some(&actual_model))
             .await?;
@@ -180,8 +180,28 @@ pub async fn handle_messages(
             upstream_base.trim_end_matches('/')
         );
 
-        let req = state
-            .http_client
+        // 选择 HTTP 客户端：有代理则使用/缓存代理 client，否则用默认 client
+        let client = if proxy_url.is_empty() {
+            state.http_client.clone()
+        } else {
+            state
+                .proxy_clients
+                .entry(proxy_url.clone())
+                .or_insert_with(|| {
+                    let proxy = reqwest::Proxy::all(&proxy_url).expect("invalid proxy url");
+                    reqwest::Client::builder()
+                        .proxy(proxy)
+                        .timeout(std::time::Duration::from_secs(
+                            state.config.timeouts.request_timeout_secs,
+                        ))
+                        .pool_max_idle_per_host(16)
+                        .build()
+                        .expect("failed to build proxy client")
+                })
+                .clone()
+        };
+
+        let req = client
             .post(&upstream_url)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
@@ -318,7 +338,8 @@ pub async fn handle_messages(
                             .collect::<String>()
                     );
 
-                    // 记录错误请求
+                    // 记录错误请求（跳过可重试状态码的失败记录，避免全 0 噪声日志）
+                    if !is_retryable_status(status_code) {
                     let db = Arc::clone(&state.db);
                     let err_model = actual_model.clone();
                     let err_req_model = if request_model.is_empty() {
@@ -354,6 +375,7 @@ pub async fn handle_messages(
                         )
                         .await;
                     });
+                    }
 
                     return Err(ProxyError::UpstreamError {
                         status: status_code,
@@ -562,7 +584,7 @@ pub async fn handle_models(
     let token_for_pool = matched_token.as_deref().unwrap_or("");
 
     // 选取一个可用 key 获取上游 URL（模型列表请求不按模型筛选）
-    let (_key_id, api_key, upstream_base, _channel_id) =
+    let (_key_id, api_key, upstream_base, _channel_id, _proxy_url) =
         state.key_pool.next_key(token_for_pool, None).await?;
 
     let models_url = format!("{}/v1/models", upstream_base.trim_end_matches('/'));

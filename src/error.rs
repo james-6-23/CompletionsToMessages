@@ -60,7 +60,23 @@ impl IntoResponse for ProxyError {
                 let http_status =
                     StatusCode::from_u16(upstream_status).unwrap_or(StatusCode::BAD_GATEWAY);
 
-                let error_body = if let Some(body_str) = &upstream_body {
+                // 对敏感错误脱敏，不暴露上游渠道信息给下游
+                let sanitized_messages: &[(u16, &str)] = &[
+                    (401, "Upstream API authentication failed"),
+                    (402, "Upstream API quota exhausted, retrying with another key"),
+                    (403, "Upstream API access denied"),
+                ];
+
+                let error_body =
+                    if let Some((_, msg)) = sanitized_messages.iter().find(|(c, _)| *c == upstream_status) {
+                        json!({
+                            "type": "error",
+                            "error": {
+                                "type": "api_error",
+                                "message": msg,
+                            }
+                        })
+                    } else if let Some(body_str) = &upstream_body {
                     // 尝试解析上游 JSON 并透传
                     if let Ok(json_body) = serde_json::from_str::<serde_json::Value>(body_str) {
                         json_body

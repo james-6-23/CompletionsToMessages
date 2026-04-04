@@ -83,6 +83,7 @@ export interface Endpoint {
   base_url: string;
   website_url: string;
   logo_url: string;
+  proxy_url: string;
   is_active: boolean;
   key_count: number;
   models: string[];

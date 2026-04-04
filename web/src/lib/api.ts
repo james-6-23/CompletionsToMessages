@@ -118,6 +118,11 @@ export const api = {
     return fetchJson<ApiKey[]>(`/api/keys${sp}`);
   },
   addApiKey: (data: { endpoint_id: string; api_key: string; label: string }) => postJson<ApiKey>('/api/keys', data),
+  batchAddApiKeys: (data: { endpoint_id: string; api_keys: string[] }) => postJson<{ ok: boolean; count: number }>('/api/keys/batch', data),
+  batchDeleteApiKeysPost: (data: { endpoint_id: string; status: string }) =>
+    fetch('/api/keys/batch', { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(data) }).then(r => r.json()) as Promise<{ ok: boolean; count: number }>,
+  batchRestoreKeys: (data: { endpoint_id: string }) => postJson<{ ok: boolean; count: number }>('/api/keys/restore', data),
+  exportKeys: (data: { endpoint_id: string; status?: string }) => postJson<{ ok: boolean; keys: string[]; count: number }>('/api/keys/export', data),
   deleteApiKey: (id: string) => deleteJson<{ ok: boolean }>(`/api/keys/${id}`),
   toggleApiKey: (id: string, is_active: boolean) => putJson<{ ok: boolean }>(`/api/keys/${id}/status`, { is_active }),
   getApiKeyFull: (id: string) => fetchJson<{ api_key: string }>(`/api/keys/${id}/full`),
@@ -125,12 +130,13 @@ export const api = {
 
   // 渠道（上游端点）
   listEndpoints: () => fetchJson<Endpoint[]>('/api/endpoints'),
-  addEndpoint: (data: { name: string; base_url: string; website_url?: string; logo_url?: string }) => postJson<Endpoint>('/api/endpoints', data),
-  updateEndpoint: (id: string, data: { name: string; base_url: string; website_url?: string; logo_url?: string }) => putJson<{ ok: boolean }>(`/api/endpoints/${id}`, data),
+  addEndpoint: (data: { name: string; base_url: string; website_url?: string; logo_url?: string; proxy_url?: string }) => postJson<Endpoint>('/api/endpoints', data),
+  updateEndpoint: (id: string, data: { name: string; base_url: string; website_url?: string; logo_url?: string; proxy_url?: string }) => putJson<{ ok: boolean }>(`/api/endpoints/${id}`, data),
   deleteEndpoint: (id: string) => deleteJson<{ ok: boolean }>(`/api/endpoints/${id}`),
   toggleEndpoint: (id: string, is_active: boolean) => putJson<{ ok: boolean }>(`/api/endpoints/${id}/status`, { is_active }),
   getEndpointModels: (id: string) => fetchJson<{ data: { id: string }[] }>(`/api/endpoints/${id}/models`),
   syncEndpointModels: (id: string) => postJson<{ ok: boolean; models: string[]; count: number }>(`/api/endpoints/${id}/sync-models`, {}),
+  testProxy: (proxy_url: string) => postJson<{ ok: boolean; latency_ms: number; location?: string; ip?: string; error?: string }>('/api/endpoints/test-proxy', { proxy_url }),
 
   // 访问密钥
   listAccessTokens: () => fetchJson<AccessToken[]>('/api/access-tokens'),
