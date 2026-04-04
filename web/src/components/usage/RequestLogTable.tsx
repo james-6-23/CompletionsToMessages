@@ -37,9 +37,15 @@ export function RequestLogTable({ timeRange, refreshMs, endpoints }: Props) {
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
 
   function durationColor(ms: number): string {
-    if (ms <= 5000) return 'text-emerald-500';
-    if (ms <= 120000) return 'text-amber-500';
+    if (ms <= 5000) return 'text-emerald-600 dark:text-emerald-400';
+    if (ms <= 120000) return 'text-amber-600 dark:text-amber-400';
     return 'text-red-500';
+  }
+
+  function durationBg(ms: number): string {
+    if (ms <= 5000) return 'hsl(142 71% 45% / 0.1)';
+    if (ms <= 120000) return 'hsl(38 92% 50% / 0.1)';
+    return 'hsl(0 84% 60% / 0.1)';
   }
 
   function getChannelName(id: string): string {
@@ -97,7 +103,7 @@ export function RequestLogTable({ timeRange, refreshMs, endpoints }: Props) {
               <TableHead className="text-right">缓存读取</TableHead>
               <TableHead className="text-right">缓存创建</TableHead>
               <TableHead className="text-right">总成本</TableHead>
-              <TableHead className="text-right">耗时</TableHead>
+              <TableHead className="text-center">用时/首字</TableHead>
               <TableHead className="text-center">状态码</TableHead>
             </TableRow>
           </TableHeader>
@@ -130,7 +136,26 @@ export function RequestLogTable({ timeRange, refreshMs, endpoints }: Props) {
                   <TableCell className="text-right tabular-nums text-sm">{fmtInt(log.cache_read_tokens)}</TableCell>
                   <TableCell className="text-right tabular-nums text-sm">{fmtInt(log.cache_creation_tokens)}</TableCell>
                   <TableCell className="text-right tabular-nums text-sm">{fmtUsd(log.total_cost_usd, 4)}</TableCell>
-                  <TableCell className={`text-right tabular-nums text-sm ${durationColor(log.latency_ms)}`}>{fmtDuration(log.latency_ms)}</TableCell>
+                  <TableCell className="text-center">
+                    <div className="inline-flex items-center gap-1">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium ${durationColor(log.latency_ms)} bg-current/10`}
+                        style={{ backgroundColor: durationBg(log.latency_ms) }}>
+                        {fmtDuration(log.latency_ms)}
+                      </span>
+                      {log.first_token_ms != null && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium text-blue-600 dark:text-blue-400"
+                          style={{ backgroundColor: 'hsl(217 91% 60% / 0.1)' }}>
+                          {fmtDuration(log.first_token_ms)}
+                        </span>
+                      )}
+                      {log.is_streaming && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium text-amber-600 dark:text-amber-400"
+                          style={{ backgroundColor: 'hsl(38 92% 50% / 0.1)' }}>
+                          流
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-center">
                     <Badge variant={log.status_code === 200 ? 'default' : 'destructive'}
                       className={log.status_code === 200
