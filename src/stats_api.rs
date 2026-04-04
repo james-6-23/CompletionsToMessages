@@ -13,11 +13,13 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-/// 天数查询参数
+/// 时间范围查询参数
 #[derive(Debug, Deserialize)]
 pub struct DaysParam {
     /// 查询最近 N 天的数据，默认 1
     pub days: Option<u32>,
+    /// 查询最近 N 小时（优先于 days）
+    pub hours: Option<u32>,
     pub channel_id: Option<String>,
 }
 
@@ -32,21 +34,26 @@ pub struct LogsParam {
     pub channel_id: Option<String>,
 }
 
-/// 根据天数计算起止时间戳（Unix 秒）
-fn time_range_from_days(days: Option<u32>) -> (i64, i64) {
+/// 根据参数计算起止时间戳（Unix 秒）
+fn time_range_from_params(hours: Option<u32>, days: Option<u32>) -> (i64, i64) {
     let now = chrono::Utc::now().timestamp();
-    let days = days.unwrap_or(1).max(1) as i64;
-    let start = now - days * 86400;
-    (start, now)
+    let secs = if let Some(h) = hours {
+        h.max(1) as i64 * 3600
+    } else {
+        days.unwrap_or(1).max(1) as i64 * 86400
+    };
+    (now - secs, now)
 }
 
-/// 根据天数推算合理的分桶间隔（秒）
-fn interval_from_days(days: u32) -> i64 {
-    match days {
-        0..=1 => 3600,       // 1天：按小时
-        2..=7 => 3600 * 6,   // 2-7天：按6小时
-        8..=30 => 86400,     // 8-30天：按天
-        _ => 86400 * 7,      // 超过30天：按周
+/// 根据时间跨度秒数推算合理的分桶间隔（秒）
+fn interval_from_span(span_secs: i64) -> i64 {
+    match span_secs {
+        0..=3600 => 300,            // ≤1h：5分钟
+        3601..=21600 => 900,        // ≤6h：15分钟
+        21601..=86400 => 3600,      // ≤1d：1小时
+        86401..=604800 => 3600 * 6, // ≤7d：6小时
+        604801..=2592000 => 86400,  // ≤30d：1天
+        _ => 86400 * 7,             // >30d：1周
     }
 }
 
@@ -55,7 +62,7 @@ pub async fn get_summary(
     State(state): State<AppState>,
     Query(params): Query<DaysParam>,
 ) -> Result<Json<Value>, ProxyError> {
-    let (start_ts, end_ts) = time_range_from_days(params.days);
+    let (start_ts, end_ts) = time_range_from_params(params.hours, params.days);
     let db = Arc::clone(&state.db);
     let channel_id = params.channel_id;
 
@@ -74,9 +81,8 @@ pub async fn get_trends(
     State(state): State<AppState>,
     Query(params): Query<DaysParam>,
 ) -> Result<Json<Value>, ProxyError> {
-    let days = params.days.unwrap_or(1).max(1);
-    let (start_ts, end_ts) = time_range_from_days(Some(days));
-    let interval_secs = interval_from_days(days);
+    let (start_ts, end_ts) = time_range_from_params(params.hours, params.days);
+    let interval_secs = interval_from_span(end_ts - start_ts);
     let db = Arc::clone(&state.db);
     let channel_id = params.channel_id;
 
@@ -95,7 +101,7 @@ pub async fn get_models(
     State(state): State<AppState>,
     Query(params): Query<DaysParam>,
 ) -> Result<Json<Value>, ProxyError> {
-    let (start_ts, end_ts) = time_range_from_days(params.days);
+    let (start_ts, end_ts) = time_range_from_params(None, params.days);
     let db = Arc::clone(&state.db);
 
     let stats = tokio::task::spawn_blocking(move || db.get_model_stats(start_ts, end_ts))
@@ -113,7 +119,7 @@ pub async fn get_logs(
 ) -> Result<Json<Value>, ProxyError> {
     let page = params.page.unwrap_or(1).max(1);
     let page_size = params.page_size.unwrap_or(20).min(100);
-    let (start_ts, end_ts) = time_range_from_days(params.days);
+    let (start_ts, end_ts) = time_range_from_params(None, params.days);
     let status_code = params.status_code;
     let model = params.model.clone();
     let channel_id = params.channel_id.clone();

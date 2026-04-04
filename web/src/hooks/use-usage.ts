@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 import type { UsageSummary, DailyStats, ModelStats, PaginatedLogs, ApiKey, Endpoint } from '@/types/usage';
 
-export function useUsageSummary(days: number, refreshMs: number, channelId?: string) {
+export function useUsageSummary(hours: number, refreshMs: number, channelId?: string) {
   const [data, setData] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(() => {
-    api.getUsageSummary(days, channelId).then(setData).catch(console.error).finally(() => setLoading(false));
-  }, [days, channelId]);
+    api.getUsageSummary(hours, channelId).then(setData).catch(console.error).finally(() => setLoading(false));
+  }, [hours, channelId]);
 
   useEffect(() => {
     setLoading(true);
@@ -22,13 +22,13 @@ export function useUsageSummary(days: number, refreshMs: number, channelId?: str
   return { data, loading, refresh };
 }
 
-export function useUsageTrends(days: number, refreshMs: number, channelId?: string) {
+export function useUsageTrends(hours: number, refreshMs: number, channelId?: string) {
   const [data, setData] = useState<DailyStats[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(() => {
-    api.getUsageTrends(days, channelId).then(setData).catch(console.error).finally(() => setLoading(false));
-  }, [days, channelId]);
+    api.getUsageTrends(hours, channelId).then(setData).catch(console.error).finally(() => setLoading(false));
+  }, [hours, channelId]);
 
   useEffect(() => {
     setLoading(true);

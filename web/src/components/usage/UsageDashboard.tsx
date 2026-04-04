@@ -15,16 +15,24 @@ const REFRESH_OPTIONS = [
   { label: '60s', value: 60000 },
 ];
 
+const TIME_RANGE_HOURS: Record<TimeRange, number> = {
+  '1h': 1,
+  '6h': 6,
+  '1d': 24,
+  '7d': 168,
+  '30d': 720,
+};
+
 export function UsageDashboard() {
   const [timeRange, setTimeRange] = useState<TimeRange>('1d');
   const [refreshIdx, setRefreshIdx] = useState(3);
   const [channelFilter, setChannelFilter] = useState<string>('all');
   const refreshMs = REFRESH_OPTIONS[refreshIdx].value;
-  const days = timeRange === '1d' ? 1 : 7;
+  const hours = TIME_RANGE_HOURS[timeRange];
   const channelId = channelFilter !== 'all' ? channelFilter : undefined;
 
-  const summary = useUsageSummary(days, refreshMs, channelId);
-  const trends = useUsageTrends(days, refreshMs, channelId);
+  const summary = useUsageSummary(hours, refreshMs, channelId);
+  const trends = useUsageTrends(hours, refreshMs, channelId);
   const { data: endpoints } = useEndpoints();
 
   function cycleRefresh() {
@@ -66,8 +74,11 @@ export function UsageDashboard() {
           </button>
           <Tabs value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
             <TabsList>
+              <TabsTrigger value="1h">1小时</TabsTrigger>
+              <TabsTrigger value="6h">6小时</TabsTrigger>
               <TabsTrigger value="1d">24小时</TabsTrigger>
               <TabsTrigger value="7d">7天</TabsTrigger>
+              <TabsTrigger value="30d">30天</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>

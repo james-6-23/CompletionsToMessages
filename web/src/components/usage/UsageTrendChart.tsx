@@ -1,5 +1,5 @@
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import type { DailyStats, TimeRange } from '@/types/usage';
 import { fmtTokenK, fmtUsd, parseFiniteNumber } from './format';
@@ -31,10 +31,12 @@ function transform(rows: DailyStats[]): ChartRow[] {
 }
 
 function formatXAxis(value: string, timeRange: TimeRange): string {
-  if (timeRange === '1d') {
+  if (timeRange === '1h' || timeRange === '6h' || timeRange === '1d') {
+    // 按分钟/小时分组的数据，取时间部分
     const parts = value.split(' ');
     return parts.length > 1 ? parts[1].slice(0, 5) : value;
   }
+  // 7 天/30 天按日分组，取 MM/dd
   const parts = value.split('-');
   return parts.length >= 3 ? `${parts[1]}/${parts[2]}` : value;
 }
@@ -135,6 +137,12 @@ export function UsageTrendChart({ data, loading, timeRange }: Props) {
               tickLine={false}
             />
             <Tooltip content={<CustomTooltip />} />
+            <Legend
+              verticalAlign="bottom"
+              height={36}
+              formatter={(value: string) => SERIES_LABELS[value] ?? value}
+              wrapperStyle={{ fontSize: 12 }}
+            />
             <Area yAxisId="tokens" type="monotone" dataKey="input" stroke="#3b82f6" fill="url(#gInput)" strokeWidth={2} name="输入" />
             <Area yAxisId="tokens" type="monotone" dataKey="output" stroke="#22c55e" fill="url(#gOutput)" strokeWidth={2} name="输出" />
             <Area yAxisId="tokens" type="monotone" dataKey="cacheCreate" stroke="#f97316" fill="url(#gCacheCreate)" strokeWidth={2} name="缓存创建" />

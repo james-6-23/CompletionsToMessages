@@ -17,7 +17,8 @@ export function ModelStatsPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>('1d');
   const [refreshIdx, setRefreshIdx] = useState(3);
   const refreshMs = REFRESH_OPTIONS[refreshIdx].value;
-  const days = timeRange === '1d' ? 1 : 7;
+  const daysMap: Record<string, number> = { '1h': 1, '6h': 1, '1d': 1, '7d': 7, '30d': 30 };
+  const days = daysMap[timeRange] ?? 1;
 
   const models = useModelStats(days, refreshMs);
 
@@ -46,8 +47,11 @@ export function ModelStatsPage() {
           </button>
           <Tabs value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
             <TabsList>
+              <TabsTrigger value="1h">1小时</TabsTrigger>
+              <TabsTrigger value="6h">6小时</TabsTrigger>
               <TabsTrigger value="1d">24小时</TabsTrigger>
               <TabsTrigger value="7d">7天</TabsTrigger>
+              <TabsTrigger value="30d">30天</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>

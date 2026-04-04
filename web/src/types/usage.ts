@@ -59,7 +59,7 @@ export interface ModelPricing {
   cache_creation_cost_per_million: string;
 }
 
-export type TimeRange = "1d" | "7d";
+export type TimeRange = "1h" | "6h" | "1d" | "7d" | "30d";
 
 export interface ApiKey {
   id: string;

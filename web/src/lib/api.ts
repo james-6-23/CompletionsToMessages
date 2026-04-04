@@ -66,14 +66,14 @@ export const api = {
       body: JSON.stringify({ secret }),
     }).then(r => r.json() as Promise<{ valid: boolean; auth_required: boolean }>),
 
-  getUsageSummary: (days: number, channelId?: string) => {
-    const sp = new URLSearchParams({ days: String(days) });
+  getUsageSummary: (hours: number, channelId?: string) => {
+    const sp = new URLSearchParams({ hours: String(hours) });
     if (channelId) sp.set('channel_id', channelId);
     return fetchJson<UsageSummary>(`${BASE}/api/stats/summary?${sp}`);
   },
 
-  getUsageTrends: (days: number, channelId?: string) => {
-    const sp = new URLSearchParams({ days: String(days) });
+  getUsageTrends: (hours: number, channelId?: string) => {
+    const sp = new URLSearchParams({ hours: String(hours) });
     if (channelId) sp.set('channel_id', channelId);
     return fetchJson<DailyStats[]>(`${BASE}/api/stats/trends?${sp}`);
   },

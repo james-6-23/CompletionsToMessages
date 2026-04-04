@@ -23,7 +23,8 @@ export function RequestLogTable({ timeRange, refreshMs, endpoints }: Props) {
   const [modelFilter, setModelFilter] = useState('');
   const [channelFilter, setChannelFilter] = useState<string>('all');
 
-  const days = timeRange === '1d' ? 1 : 7;
+  const daysMap: Record<string, number> = { '1h': 1, '6h': 1, '1d': 1, '7d': 7, '30d': 30 };
+  const days = daysMap[timeRange] ?? 1;
   const statusCode = statusFilter !== 'all' ? Number(statusFilter) : undefined;
   const model = modelFilter.trim() || undefined;
   const channelId = channelFilter !== 'all' ? channelFilter : undefined;
