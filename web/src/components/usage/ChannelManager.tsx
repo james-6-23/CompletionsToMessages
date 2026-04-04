@@ -846,12 +846,19 @@ function ChannelDetailPanel({
                   className="h-7 text-xs font-mono w-48"
                 />
                 <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <Input
-                  placeholder="实际模型名"
-                  value={newMapTo}
-                  onChange={e => setNewMapTo(e.target.value)}
-                  className="h-7 text-xs font-mono w-48"
-                />
+                <Select value={newMapTo || undefined} onValueChange={v => setNewMapTo(v)} onOpenChange={o => { if (o && models.length === 0) fetchModels(); }}>
+                  <SelectTrigger className="w-48 h-7 text-xs font-mono font-semibold">
+                    <SelectValue placeholder="选择实际模型" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[280px]">
+                    {(endpoint.models.length > 0 ? endpoint.models : models).map(m => (
+                      <SelectItem key={m} value={m} className="text-xs font-mono font-medium">{m}</SelectItem>
+                    ))}
+                    {endpoint.models.length === 0 && models.length === 0 && (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">请先同步模型列表</div>
+                    )}
+                  </SelectContent>
+                </Select>
                 <Button
                   size="sm"
                   variant="outline"
