@@ -9,6 +9,24 @@ use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
+
+/// 流式响应中收集的 usage 信息
+#[derive(Debug, Default, Clone)]
+pub struct StreamUsage {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub cache_read_tokens: u32,
+    pub cache_creation_tokens: u32,
+}
+
+/// 线程安全的 usage 收集器
+pub type StreamUsageCollector = Arc<Mutex<StreamUsage>>;
+
+/// 创建新的 usage 收集器
+pub fn new_usage_collector() -> StreamUsageCollector {
+    Arc::new(Mutex::new(StreamUsage::default()))
+}
 
 /// OpenAI 流式响应数据结构
 #[derive(Debug, Deserialize)]
@@ -86,9 +104,10 @@ struct ToolBlockState {
     pending_args: String,
 }
 
-/// 创建 Anthropic SSE 流
+/// 创建 Anthropic SSE 流，同时通过 `usage_collector` 收集 token 使用量
 pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
     stream: impl Stream<Item = Result<Bytes, E>> + Send + 'static,
+    usage_collector: StreamUsageCollector,
 ) -> impl Stream<Item = Result<Bytes, std::io::Error>> + Send {
     async_stream::stream! {
         let mut buffer = String::new();
@@ -152,6 +171,12 @@ pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
                                                 }
                                                 if let Some(created) = u.cache_creation_input_tokens {
                                                     start_usage["cache_creation_input_tokens"] = json!(created);
+                                                }
+                                                // 收集初始 usage
+                                                if let Ok(mut c) = usage_collector.lock() {
+                                                    c.input_tokens = u.prompt_tokens;
+                                                    c.cache_read_tokens = extract_cache_read_tokens(u).unwrap_or(0);
+                                                    c.cache_creation_tokens = u.cache_creation_input_tokens.unwrap_or(0);
                                                 }
                                             }
 
@@ -431,6 +456,13 @@ pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
 
                                             let stop_reason = map_stop_reason(Some(finish_reason));
                                             let usage_json = chunk.usage.as_ref().map(|u| {
+                                                // 收集 usage 到共享收集器
+                                                if let Ok(mut collector) = usage_collector.lock() {
+                                                    collector.input_tokens = u.prompt_tokens;
+                                                    collector.output_tokens = u.completion_tokens;
+                                                    collector.cache_read_tokens = extract_cache_read_tokens(u).unwrap_or(0);
+                                                    collector.cache_creation_tokens = u.cache_creation_input_tokens.unwrap_or(0);
+                                                }
                                                 let mut uj = json!({"input_tokens": u.prompt_tokens, "output_tokens": u.completion_tokens});
                                                 if let Some(cached) = extract_cache_read_tokens(u) {
                                                     uj["cache_read_input_tokens"] = json!(cached);
@@ -522,7 +554,8 @@ mod tests {
             "data: [DONE]\n\n"
         );
         let upstream = stream::iter(vec![Ok::<_, std::io::Error>(Bytes::from(input.as_bytes().to_vec()))]);
-        let converted = create_anthropic_sse_stream(upstream);
+        let collector = new_usage_collector();
+        let converted = create_anthropic_sse_stream(upstream, collector);
         let chunks: Vec<_> = converted.collect().await;
 
         let merged = chunks.into_iter()

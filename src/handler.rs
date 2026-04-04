@@ -175,13 +175,15 @@ pub async fn handle_messages(
 
     // 8. 响应转换
     if is_stream {
-        // 流式请求：记录基本信息，token 使用量暂记为 0
-        let latency_ms = start_time.elapsed().as_millis() as u64;
         let db = Arc::clone(&state.db);
         let stream_model = actual_model.clone();
         let stream_req_model = if request_model.is_empty() { None } else { Some(request_model.clone()) };
         let rid = request_id.clone();
-        let response = handle_streaming_response(resp).await;
+        let start = start_time;
+
+        // 创建 usage 收集器，流式解析过程中会填入实际 token 数
+        let usage_collector = streaming::new_usage_collector();
+        let response = handle_streaming_response(resp, usage_collector.clone()).await;
 
         // 上报密钥使用成功
         if let Some(ref kid) = key_id {
@@ -196,17 +198,22 @@ pub async fn handle_messages(
             tokio::spawn(async move { pool.report_access_token(&t, true).await });
         }
 
+        // 延迟记录 usage：等流传输完毕后从 collector 读取实际值
         tokio::spawn(async move {
+            // 等待一段时间让流传输完成（collector 在流最后的 chunk 中被更新）
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let latency_ms = start.elapsed().as_millis() as u64;
+            let collected = usage_collector.lock().map(|c| c.clone()).unwrap_or_default();
             usage::record_request(
                 db,
                 rid,
                 stream_model,
                 stream_req_model,
                 usage::TokenUsage {
-                    input_tokens: 0,
-                    output_tokens: 0,
-                    cache_read_tokens: 0,
-                    cache_creation_tokens: 0,
+                    input_tokens: collected.input_tokens,
+                    output_tokens: collected.output_tokens,
+                    cache_read_tokens: collected.cache_read_tokens,
+                    cache_creation_tokens: collected.cache_creation_tokens,
                 },
                 latency_ms,
                 None,
@@ -247,9 +254,10 @@ pub async fn handle_messages(
 /// 处理流式响应
 async fn handle_streaming_response(
     resp: reqwest::Response,
+    usage_collector: streaming::StreamUsageCollector,
 ) -> Result<axum::response::Response, ProxyError> {
     let stream = resp.bytes_stream();
-    let sse_stream = streaming::create_anthropic_sse_stream(stream);
+    let sse_stream = streaming::create_anthropic_sse_stream(stream, usage_collector);
 
     let mut headers = axum::http::HeaderMap::new();
     headers.insert(
