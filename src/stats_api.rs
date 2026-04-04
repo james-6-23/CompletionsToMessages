@@ -193,6 +193,8 @@ pub struct AddEndpointRequest {
     pub base_url: String,
     #[serde(default)]
     pub website_url: String,
+    #[serde(default)]
+    pub logo_url: String,
 }
 
 /// 更新端点请求体
@@ -202,6 +204,8 @@ pub struct UpdateEndpointRequest {
     pub base_url: String,
     #[serde(default)]
     pub website_url: String,
+    #[serde(default)]
+    pub logo_url: String,
 }
 
 /// 更新端点状态请求体
@@ -234,8 +238,9 @@ pub async fn add_endpoint(
     }
     let name = body.name.trim().to_string();
     let website = body.website_url.trim().to_string();
+    let logo = body.logo_url.trim().to_string();
     let db = Arc::clone(&state.db);
-    let row = tokio::task::spawn_blocking(move || db.add_endpoint(&name, &url, &website))
+    let row = tokio::task::spawn_blocking(move || db.add_endpoint(&name, &url, &website, &logo))
         .await
         .map_err(|e| ProxyError::Internal(format!("添加端点失败: {e}")))?
         .map_err(|e| ProxyError::Internal(e))?;
@@ -252,8 +257,9 @@ pub async fn update_endpoint(
     let url = body.base_url.trim().trim_end_matches('/').to_string();
     let name = body.name.trim().to_string();
     let website = body.website_url.trim().to_string();
+    let logo = body.logo_url.trim().to_string();
     let db = Arc::clone(&state.db);
-    tokio::task::spawn_blocking(move || db.update_endpoint(&id, &name, &url, &website))
+    tokio::task::spawn_blocking(move || db.update_endpoint(&id, &name, &url, &website, &logo))
         .await
         .map_err(|e| ProxyError::Internal(format!("更新端点失败: {e}")))?
         .map_err(|e| ProxyError::Internal(e))?;

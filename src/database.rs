@@ -100,6 +100,7 @@ pub struct EndpointRow {
     pub name: String,
     pub base_url: String,
     pub website_url: String,
+    pub logo_url: String,
     pub is_active: bool,
     pub key_count: u64,
     pub models: Vec<String>,
@@ -273,6 +274,28 @@ impl Database {
                     "ALTER TABLE upstream_endpoints ADD COLUMN website_url TEXT NOT NULL DEFAULT '';"
                 ).map_err(|e| format!("迁移 upstream_endpoints 添加 website_url 列失败: {e}"))?;
                 log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 website_url 列");
+            }
+        }
+
+        // 迁移：为 upstream_endpoints 添加 logo_url 列
+        {
+            let has_col: bool = conn
+                .prepare("PRAGMA table_info(upstream_endpoints)")
+                .and_then(|mut stmt| {
+                    let names: Vec<String> = stmt
+                        .query_map([], |row| row.get::<_, String>(1))
+                        .unwrap()
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    Ok(names.contains(&"logo_url".to_string()))
+                })
+                .unwrap_or(false);
+
+            if !has_col {
+                conn.execute_batch(
+                    "ALTER TABLE upstream_endpoints ADD COLUMN logo_url TEXT NOT NULL DEFAULT '';"
+                ).map_err(|e| format!("迁移 upstream_endpoints 添加 logo_url 列失败: {e}"))?;
+                log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 logo_url 列");
             }
         }
 
@@ -861,7 +884,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT e.id, e.name, e.base_url, e.is_active, e.created_at,
                     (SELECT COUNT(*) FROM api_keys k WHERE k.endpoint_id = e.id) as key_count,
-                    e.models, e.website_url
+                    e.models, e.website_url, e.logo_url
             FROM upstream_endpoints e
             ORDER BY e.created_at ASC"
         ).map_err(|e| format!("准备端点查询失败: {e}"))?;
@@ -878,6 +901,7 @@ impl Database {
                 models,
                 created_at: row.get(4)?,
                 website_url: row.get::<_, String>(7).unwrap_or_default(),
+                logo_url: row.get::<_, String>(8).unwrap_or_default(),
             })
         }).map_err(|e| format!("查询端点失败: {e}"))?;
 
@@ -889,14 +913,14 @@ impl Database {
     }
 
     /// 添加上游端点
-    pub fn add_endpoint(&self, name: &str, base_url: &str, website_url: &str) -> Result<EndpointRow, String> {
+    pub fn add_endpoint(&self, name: &str, base_url: &str, website_url: &str, logo_url: &str) -> Result<EndpointRow, String> {
         let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = chrono::Utc::now().timestamp();
 
         conn.execute(
-            "INSERT INTO upstream_endpoints (id, name, base_url, website_url, is_active, created_at) VALUES (?1, ?2, ?3, ?4, 1, ?5)",
-            params![id, name, base_url, website_url, created_at],
+            "INSERT INTO upstream_endpoints (id, name, base_url, website_url, logo_url, is_active, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
+            params![id, name, base_url, website_url, logo_url, created_at],
         ).map_err(|e| format!("插入端点失败: {e}"))?;
 
         Ok(EndpointRow {
@@ -904,6 +928,7 @@ impl Database {
             name: name.to_string(),
             base_url: base_url.to_string(),
             website_url: website_url.to_string(),
+            logo_url: logo_url.to_string(),
             is_active: true,
             key_count: 0,
             models: vec![],
@@ -912,11 +937,11 @@ impl Database {
     }
 
     /// 更新上游端点
-    pub fn update_endpoint(&self, id: &str, name: &str, base_url: &str, website_url: &str) -> Result<(), String> {
+    pub fn update_endpoint(&self, id: &str, name: &str, base_url: &str, website_url: &str, logo_url: &str) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
         conn.execute(
-            "UPDATE upstream_endpoints SET name = ?1, base_url = ?2, website_url = ?3 WHERE id = ?4",
-            params![name, base_url, website_url, id],
+            "UPDATE upstream_endpoints SET name = ?1, base_url = ?2, website_url = ?3, logo_url = ?4 WHERE id = ?5",
+            params![name, base_url, website_url, logo_url, id],
         ).map_err(|e| format!("更新端点失败: {e}"))?;
         Ok(())
     }

@@ -82,6 +82,7 @@ export interface Endpoint {
   name: string;
   base_url: string;
   website_url: string;
+  logo_url: string;
   is_active: boolean;
   key_count: number;
   models: string[];

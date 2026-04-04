@@ -49,6 +49,12 @@ function getFaviconUrl(websiteUrl: string): string | null {
   }
 }
 
+/* 获取渠道图标 URL：优先 logo_url，其次从 website_url 提取 favicon */
+function getIconUrl(endpoint: Endpoint): string | null {
+  if (endpoint.logo_url) return endpoint.logo_url;
+  return getFaviconUrl(endpoint.website_url);
+}
+
 function ChannelListItem({
   endpoint,
   isSelected,
@@ -61,26 +67,26 @@ function ChannelListItem({
   const color = getAvatarColor(endpoint.name);
   const letter = getAvatarLetter(endpoint.name);
   const tag = '#' + endpoint.name.toLowerCase().replace(/\s+/g, '_');
-  const faviconUrl = getFaviconUrl(endpoint.website_url);
-  const [faviconOk, setFaviconOk] = useState(!!faviconUrl);
+  const iconUrl = getIconUrl(endpoint);
+  const [iconOk, setIconOk] = useState(!!iconUrl);
 
   return (
     <div
       className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all duration-150 ${
         isSelected
-          ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-md'
-          : 'hover:bg-muted/60 text-foreground'
+          ? 'bg-primary/8 border border-primary/20'
+          : 'hover:bg-muted/60 border border-transparent'
       }`}
       onClick={onClick}
     >
-      {/* 头像：有 favicon 则显示网站图标，否则显示字母 */}
-      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl overflow-hidden ${faviconUrl && faviconOk ? 'bg-white border border-border/30' : `${color} text-white font-bold text-sm`}`}>
-        {faviconUrl && faviconOk ? (
+      {/* 头像：有图标则显示，否则显示字母 */}
+      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl overflow-hidden ${iconUrl && iconOk ? 'bg-white dark:bg-muted border border-border/30' : `${color} text-white font-bold text-sm`}`}>
+        {iconUrl && iconOk ? (
           <img
-            src={faviconUrl}
+            src={iconUrl}
             alt=""
             className="h-5 w-5 object-contain"
-            onError={() => setFaviconOk(false)}
+            onError={() => setIconOk(false)}
           />
         ) : (
           letter
@@ -89,18 +95,14 @@ function ChannelListItem({
 
       {/* 名称 + 标签 */}
       <div className="flex-1 min-w-0">
-        <p className={`text-sm font-semibold truncate ${isSelected ? 'text-white' : 'text-foreground'}`}>
+        <p className={`text-sm font-semibold truncate ${isSelected ? 'text-primary' : 'text-foreground'}`}>
           {endpoint.name}
         </p>
         <div className="flex items-center gap-1.5 mt-0.5">
-          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-            isSelected
-              ? 'bg-white/20 text-white'
-              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-          }`}>
+          <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
             openai
           </span>
-          <span className={`text-xs truncate ${isSelected ? 'text-white/70' : 'text-muted-foreground'}`}>
+          <span className="text-xs truncate text-muted-foreground">
             {tag}
           </span>
         </div>
@@ -277,6 +279,7 @@ function ChannelDetailPanel({
   const [editName, setEditName] = useState(endpoint.name);
   const [editUrl, setEditUrl] = useState(endpoint.base_url);
   const [editWebsite, setEditWebsite] = useState(endpoint.website_url || '');
+  const [editLogo, setEditLogo] = useState(endpoint.logo_url || '');
   const [saving, setSaving] = useState(false);
 
   /* 添加密钥弹窗 */
@@ -307,6 +310,7 @@ function ChannelDetailPanel({
     setEditName(endpoint.name);
     setEditUrl(endpoint.base_url);
     setEditWebsite(endpoint.website_url || '');
+    setEditLogo(endpoint.logo_url || '');
     setSearchKey('');
     setFilterStatus('all');
     setTestResults({});
@@ -338,6 +342,7 @@ function ChannelDetailPanel({
         name: editName.trim(),
         base_url: editUrl.trim(),
         website_url: editWebsite.trim(),
+        logo_url: editLogo.trim(),
       });
       setShowEdit(false);
       onRefresh();
@@ -502,7 +507,7 @@ function ChannelDetailPanel({
           </button>
           <button
             className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-            onClick={() => { setEditName(endpoint.name); setEditUrl(endpoint.base_url); setEditWebsite(endpoint.website_url || ''); setShowEdit(true); }}
+            onClick={() => { setEditName(endpoint.name); setEditUrl(endpoint.base_url); setEditWebsite(endpoint.website_url || ''); setEditLogo(endpoint.logo_url || ''); setShowEdit(true); }}
             title="编辑"
           >
             <Pencil className="h-4 w-4" />
@@ -559,9 +564,9 @@ function ChannelDetailPanel({
                 <SyncModelsButton endpointId={endpoint.id} onSynced={onRefresh} />
               </div>
               {endpoint.models.length > 0 ? (
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1.5">
                   {endpoint.models.map(m => (
-                    <span key={m} className="inline-flex items-center px-2 py-0.5 rounded-md bg-muted text-xs font-mono text-foreground">
+                    <span key={m} className="inline-flex items-center px-2.5 py-1 rounded-lg border border-border/50 bg-muted/40 text-xs font-semibold font-mono text-foreground">
                       {m}
                     </span>
                   ))}
@@ -766,17 +771,28 @@ function ChannelDetailPanel({
                   className="flex-1 h-9 font-mono text-sm"
                 />
               </div>
-              {editWebsite && (
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  Logo 地址
+                </label>
+                <Input
+                  placeholder="https://example.com/favicon.svg"
+                  value={editLogo}
+                  onChange={e => setEditLogo(e.target.value)}
+                  className="flex-1 h-9 font-mono text-sm"
+                />
+              </div>
+              {(editLogo || editWebsite) && (
                 <div className="flex items-center gap-4">
                   <div className="w-20 shrink-0" />
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span>图标预览：</span>
-                    {(() => {
-                      const furl = getFaviconUrl(editWebsite);
-                      return furl ? (
-                        <img src={furl} alt="" className="h-5 w-5 object-contain rounded" />
-                      ) : null;
-                    })()}
+                    <img
+                      src={editLogo || getFaviconUrl(editWebsite) || ''}
+                      alt=""
+                      className="h-6 w-6 object-contain rounded"
+                      onError={e => (e.currentTarget.style.display = 'none')}
+                    />
                     <span className="text-muted-foreground/60">（保存后显示在渠道列表）</span>
                   </div>
                 </div>
@@ -808,6 +824,7 @@ function AddEndpointModal({ onAdded, onCancel }: { onAdded: () => void; onCancel
   const [name, setName] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
+  const [logoUrl, setLogoUrl] = useState('');
   const [testModel, setTestModel] = useState('');
   const [adding, setAdding] = useState(false);
 
@@ -815,7 +832,7 @@ function AddEndpointModal({ onAdded, onCancel }: { onAdded: () => void; onCancel
     if (!name.trim() || !baseUrl.trim()) return;
     setAdding(true);
     try {
-      await api.addEndpoint({ name: name.trim(), base_url: baseUrl.trim(), website_url: websiteUrl.trim() });
+      await api.addEndpoint({ name: name.trim(), base_url: baseUrl.trim(), website_url: websiteUrl.trim(), logo_url: logoUrl.trim() });
       onAdded();
     } catch (e) {
       console.error('添加端点失败:', e);
@@ -890,15 +907,30 @@ function AddEndpointModal({ onAdded, onCancel }: { onAdded: () => void; onCancel
                   className="flex-1 h-9 font-mono text-sm"
                 />
               </div>
-              {websiteUrl && (
+
+              {/* Logo 地址 */}
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  Logo 地址
+                </label>
+                <Input
+                  placeholder="https://example.com/favicon.svg"
+                  value={logoUrl}
+                  onChange={e => setLogoUrl(e.target.value)}
+                  className="flex-1 h-9 font-mono text-sm"
+                />
+              </div>
+              {(logoUrl || websiteUrl) && (
                 <div className="flex items-center gap-4">
                   <div className="w-20 shrink-0" />
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span>图标预览：</span>
-                    {(() => {
-                      const furl = getFaviconUrl(websiteUrl);
-                      return furl ? <img src={furl} alt="" className="h-5 w-5 object-contain rounded" /> : null;
-                    })()}
+                    <img
+                      src={logoUrl || getFaviconUrl(websiteUrl) || ''}
+                      alt=""
+                      className="h-6 w-6 object-contain rounded"
+                      onError={e => (e.currentTarget.style.display = 'none')}
+                    />
                   </div>
                 </div>
               )}
