@@ -324,6 +324,8 @@ pub async fn list_keys(
 }
 
 /// POST /api/keys — 添加 API Key（绑定到端点）
+///
+/// 首次为渠道添加密钥时，自动从上游同步模型列表
 pub async fn add_key(
     State(state): State<AppState>,
     Json(body): Json<AddKeyRequest>,
@@ -336,6 +338,69 @@ pub async fn add_key(
         .await
         .map_err(|e| ProxyError::Internal(format!("查询任务失败: {e}")))?
         .map_err(|e| ProxyError::Internal(e))?;
+
+    // 检查渠道是否尚未同步模型列表，是则后台自动同步
+    let ep_id = body.endpoint_id.clone();
+    let db2 = Arc::clone(&state.db);
+    let ep_models: Vec<String> = tokio::task::spawn_blocking(move || {
+        db2.list_endpoints().unwrap_or_default()
+            .into_iter()
+            .find(|e| e.id == ep_id)
+            .map(|e| e.models)
+            .unwrap_or_default()
+    }).await.unwrap_or_default();
+
+    if ep_models.is_empty() {
+        let state2 = state.clone();
+        let ep_id2 = body.endpoint_id.clone();
+        let api_key_val = body.api_key.clone();
+        tokio::spawn(async move {
+            // 用刚添加的 key 请求上游模型列表
+            let db3 = Arc::clone(&state2.db);
+            let ep_id3 = ep_id2.clone();
+            let base_url = tokio::task::spawn_blocking(move || db3.get_endpoint_url(&ep_id3))
+                .await
+                .ok()
+                .and_then(|r| r.ok())
+                .flatten();
+
+            if let Some(url) = base_url {
+                let models_url = format!("{}/v1/models", url.trim_end_matches('/'));
+                if let Ok(resp) = state2.http_client
+                    .get(&models_url)
+                    .header("Authorization", format!("Bearer {}", api_key_val))
+                    .send()
+                    .await
+                {
+                    if resp.status().is_success() {
+                        if let Ok(body) = resp.json::<serde_json::Value>().await {
+                            let model_ids: Vec<String> = body
+                                .get("data")
+                                .and_then(|d| d.as_array())
+                                .map(|arr| arr.iter()
+                                    .filter_map(|m| {
+                                        let mid = m.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                                        if crate::handler::is_claude_model(mid) { Some(mid.to_string()) } else { None }
+                                    })
+                                    .collect()
+                                )
+                                .unwrap_or_default();
+
+                            if !model_ids.is_empty() {
+                                let count = model_ids.len();
+                                let db4 = Arc::clone(&state2.db);
+                                let ep_id4 = ep_id2.clone();
+                                let _ = tokio::task::spawn_blocking(move || {
+                                    db4.update_endpoint_models(&ep_id4, &model_ids)
+                                }).await;
+                                log::info!("[cc-proxy] 自动同步渠道 {} 模型列表: {} 个", ep_id2, count);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
 
     Ok(Json(json!(row)))
 }

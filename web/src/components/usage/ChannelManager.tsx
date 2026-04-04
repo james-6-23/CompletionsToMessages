@@ -340,6 +340,19 @@ function ChannelDetailPanel({
       setNewKeysText('');
       setShowAddKey(false);
       onRefresh();
+
+      // 首次添加 key 后自动同步模型列表
+      if (endpoint.models.length === 0) {
+        try {
+          const result = await api.syncEndpointModels(endpoint.id);
+          if (result.count > 0) {
+            toast(`已自动同步 ${result.count} 个模型`);
+            onRefresh();
+          }
+        } catch {
+          // 同步失败不影响主流程
+        }
+      }
     } catch (e) {
       console.error('添加密钥失败:', e);
     } finally {
