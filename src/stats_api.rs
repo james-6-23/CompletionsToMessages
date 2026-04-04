@@ -370,6 +370,24 @@ pub async fn update_key_status(
     Ok(Json(json!({"ok": true})))
 }
 
+/// GET /api/keys/:id/full — 获取完整 API Key（用于复制）
+pub async fn get_key_full(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ProxyError> {
+    let db = Arc::clone(&state.db);
+    let full_key = tokio::task::spawn_blocking(move || db.get_api_key_full(&id))
+        .await
+        .map_err(|e| ProxyError::Internal(format!("查询任务失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+
+    let Some((api_key, _)) = full_key else {
+        return Err(ProxyError::Internal("Key not found".to_string()));
+    };
+
+    Ok(Json(json!({"api_key": api_key})))
+}
+
 /// POST /api/keys/:id/test — 测试 API Key 是否有效
 pub async fn test_key(
     State(state): State<AppState>,

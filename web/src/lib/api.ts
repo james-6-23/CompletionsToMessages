@@ -113,6 +113,7 @@ export const api = {
   addApiKey: (data: { endpoint_id: string; api_key: string; label: string }) => postJson<ApiKey>('/api/keys', data),
   deleteApiKey: (id: string) => deleteJson<{ ok: boolean }>(`/api/keys/${id}`),
   toggleApiKey: (id: string, is_active: boolean) => putJson<{ ok: boolean }>(`/api/keys/${id}/status`, { is_active }),
+  getApiKeyFull: (id: string) => fetchJson<{ api_key: string }>(`/api/keys/${id}/full`),
   testApiKey: (id: string) => postJson<TestKeyResult>(`/api/keys/${id}/test`, {}),
 
   // 渠道（上游端点）

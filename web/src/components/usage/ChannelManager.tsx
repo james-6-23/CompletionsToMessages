@@ -233,8 +233,13 @@ function EndpointCard({
     }
   }
 
-  function handleCopyKey(masked: string) {
-    copyToClipboard(masked);
+  async function handleCopyKey(id: string) {
+    try {
+      const { api_key } = await api.getApiKeyFull(id);
+      copyToClipboard(api_key);
+    } catch (e) {
+      console.error('获取完整密钥失败:', e);
+    }
   }
 
   function toggleRevealKey(id: string) {
@@ -421,7 +426,7 @@ function EndpointCard({
                     onToggle={() => handleToggleKey(key.id, key.is_active)}
                     onDelete={() => handleDeleteKey(key.id)}
                     onTest={() => handleTestKey(key.id)}
-                    onCopy={() => handleCopyKey(key.api_key_masked)}
+                    onCopy={() => handleCopyKey(key.id)}
                     onToggleReveal={() => toggleRevealKey(key.id)}
                   />
                 ))}
