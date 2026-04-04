@@ -12,7 +12,13 @@ pub enum ProxyError {
     TransformError(String),
 
     #[error("上游错误 (状态码 {status}): {body:?}")]
-    UpstreamError { status: u16, body: Option<String> },
+    UpstreamError {
+        status: u16,
+        body: Option<String>,
+        /// 从上游响应中提取的关键头部，透传给客户端
+        #[source]
+        upstream_headers: Option<UpstreamHeaders>,
+    },
 
     #[error("请求转发失败: {0}")]
     ForwardFailed(String),
@@ -30,17 +36,30 @@ pub enum ProxyError {
     Internal(String),
 }
 
+/// 封装上游响应头，用于透传给客户端
+#[derive(Debug)]
+pub struct UpstreamHeaders(pub axum::http::HeaderMap);
+
+impl std::fmt::Display for UpstreamHeaders {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UpstreamHeaders({} entries)", self.0.len())
+    }
+}
+
+impl std::error::Error for UpstreamHeaders {}
+
 impl IntoResponse for ProxyError {
     fn into_response(self) -> Response {
-        let (status, body) = match &self {
+        match self {
             ProxyError::UpstreamError {
                 status: upstream_status,
                 body: upstream_body,
+                upstream_headers,
             } => {
                 let http_status =
-                    StatusCode::from_u16(*upstream_status).unwrap_or(StatusCode::BAD_GATEWAY);
+                    StatusCode::from_u16(upstream_status).unwrap_or(StatusCode::BAD_GATEWAY);
 
-                let error_body = if let Some(body_str) = upstream_body {
+                let error_body = if let Some(body_str) = &upstream_body {
                     // 尝试解析上游 JSON 并透传
                     if let Ok(json_body) = serde_json::from_str::<serde_json::Value>(body_str) {
                         json_body
@@ -63,7 +82,14 @@ impl IntoResponse for ProxyError {
                     })
                 };
 
-                (http_status, error_body)
+                let mut resp = (http_status, Json(error_body)).into_response();
+                // 透传上游响应头
+                if let Some(UpstreamHeaders(headers)) = upstream_headers {
+                    for (key, value) in headers.iter() {
+                        resp.headers_mut().insert(key.clone(), value.clone());
+                    }
+                }
+                resp
             }
             _ => {
                 let (http_status, error_type) = match &self {
@@ -88,10 +114,8 @@ impl IntoResponse for ProxyError {
                     }
                 });
 
-                (http_status, error_body)
+                (http_status, Json(error_body)).into_response()
             }
-        };
-
-        (status, Json(body)).into_response()
+        }
     }
 }

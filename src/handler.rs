@@ -3,7 +3,7 @@
 //! 实现 /v1/messages 端点的完整处理管线：
 //! 认证 → thinking 优化 → 模型映射 → 格式转换 → 转发 → 响应转换
 
-use crate::{auth, error::ProxyError, server::AppState, streaming, thinking, transform, usage};
+use crate::{auth, error::{ProxyError, UpstreamHeaders}, server::AppState, streaming, thinking, transform, usage};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -22,6 +22,40 @@ pub async fn health_check() -> (StatusCode, Json<Value>) {
             "timestamp": chrono::Utc::now().to_rfc3339(),
         })),
     )
+}
+
+/// 判断 HTTP 状态码是否可重试
+fn is_retryable_status(status: u16) -> bool {
+    status >= 500 || status == 429 || status == 529
+}
+
+/// 从上游响应头中提取需要透传给客户端的关键头部
+fn extract_upstream_headers(resp_headers: &reqwest::header::HeaderMap) -> axum::http::HeaderMap {
+    let mut headers = axum::http::HeaderMap::new();
+    let passthrough_keys = ["retry-after", "x-should-retry", "request-id"];
+
+    for key_name in &passthrough_keys {
+        if let Some(val) = resp_headers.get(*key_name) {
+            if let Ok(hdr_name) = axum::http::header::HeaderName::from_bytes(key_name.as_bytes()) {
+                if let Ok(hdr_val) = axum::http::header::HeaderValue::from_bytes(val.as_bytes()) {
+                    headers.insert(hdr_name, hdr_val);
+                }
+            }
+        }
+    }
+
+    // 透传所有 anthropic-ratelimit-* 头
+    for (key, val) in resp_headers.iter() {
+        if key.as_str().starts_with("anthropic-ratelimit-") {
+            if let Ok(hdr_name) = axum::http::header::HeaderName::from_bytes(key.as_str().as_bytes()) {
+                if let Ok(hdr_val) = axum::http::header::HeaderValue::from_bytes(val.as_bytes()) {
+                    headers.insert(hdr_name, hdr_val);
+                }
+            }
+        }
+    }
+
+    headers
 }
 
 /// 处理 /v1/messages 请求
@@ -73,111 +107,202 @@ pub async fn handle_messages(
     // 4. Anthropic → OpenAI 格式转换
     let openai_body = transform::anthropic_to_openai(body, None)?;
 
-    // 5. 选取 API Key（基于 access token 绑定的渠道轮询）
+    // 5. 发送上游请求（含重试逻辑）
+    //
+    // 对非流式请求：遇到可重试错误（5xx / 429 / 529 / 网络错误）时最多重试 2 次，
+    //               每次重试选取新的 API Key，指数退避 500ms → 1000ms。
+    // 对流式请求：不重试（流一旦开始无法回滚）。
+    let max_attempts = if is_stream { 1 } else { 3 };
+    let backoff_base_ms: u64 = 500;
+
+    let mut last_error: Option<ProxyError> = None;
+    let mut last_key_id: Option<String> = None;
+    let mut last_channel_id: String = String::new();
+    let mut resp_opt: Option<reqwest::Response> = None;
+    let mut upstream_headers_for_resp = axum::http::HeaderMap::new();
+
     let token_for_pool = matched_token.as_deref().unwrap_or("");
-    let (key_id, api_key, upstream_base, channel_id) = state.key_pool.next_key(token_for_pool).await?;
 
-    // 6. 构建上游请求
-    let upstream_url = format!(
-        "{}/v1/chat/completions",
-        upstream_base.trim_end_matches('/')
-    );
-
-    let req = state
-        .http_client
-        .post(&upstream_url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&openai_body);
-
-    // 7. 发送请求
-    let resp = req.send().await.map_err(|e| {
-        log::error!("[cc-proxy] 转发失败: {e}");
-        // 上报密钥使用失败
-        if let Some(ref kid) = key_id {
-            let pool = state.key_pool.clone();
-            let kid = kid.clone();
-            tokio::spawn(async move { pool.report_result(&kid, false).await });
-        }
-        // 上报访问密钥使用失败
-        if let Some(ref t) = matched_token {
-            let pool = state.key_pool.clone();
-            let t = t.clone();
-            tokio::spawn(async move { pool.report_access_token(&t, false).await });
-        }
-        if e.is_timeout() {
-            ProxyError::Timeout(format!("上游请求超时: {e}"))
-        } else {
-            ProxyError::ForwardFailed(format!("上游请求失败: {e}"))
-        }
-    })?;
-
-    let status = resp.status();
-
-    // 处理上游错误
-    if !status.is_success() {
-        let status_code = status.as_u16();
-        let body_text = resp.text().await.ok();
-        let latency_ms = start_time.elapsed().as_millis() as u64;
-
-        // 上报密钥使用失败
-        if let Some(ref kid) = key_id {
-            let pool = state.key_pool.clone();
-            let kid = kid.clone();
-            tokio::spawn(async move { pool.report_result(&kid, false).await });
-        }
-        // 上报访问密钥使用失败
-        if let Some(ref t) = matched_token {
-            let pool = state.key_pool.clone();
-            let t = t.clone();
-            tokio::spawn(async move { pool.report_access_token(&t, false).await });
+    for attempt in 0..max_attempts {
+        if attempt > 0 {
+            let delay_ms = backoff_base_ms * (1 << (attempt - 1)); // 500ms, 1000ms
+            log::info!(
+                "[cc-proxy] 重试第 {} 次 (延迟 {}ms), rid={}",
+                attempt,
+                delay_ms,
+                request_id
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
         }
 
-        log::warn!(
-            "[cc-proxy] 上游错误: status={}, model={}, body={:?}",
-            status_code,
-            request_model,
-            body_text.as_deref().unwrap_or("(empty)").chars().take(200).collect::<String>()
+        // 每次尝试都选取新密钥
+        let (key_id, api_key, upstream_base, channel_id) =
+            state.key_pool.next_key(token_for_pool).await?;
+
+        last_key_id = key_id.clone();
+        last_channel_id = channel_id.clone();
+
+        let upstream_url = format!(
+            "{}/v1/chat/completions",
+            upstream_base.trim_end_matches('/')
         );
 
-        // 记录错误请求
-        let db = Arc::clone(&state.db);
-        let err_model = actual_model.clone();
-        let err_req_model = if request_model.is_empty() { None } else { Some(request_model.clone()) };
-        let err_msg = body_text.as_deref().map(|s| s.chars().take(500).collect::<String>());
-        let rid = request_id.clone();
-        let err_channel_id = channel_id.clone();
-        let err_key_id = key_id.clone().unwrap_or_default();
-        tokio::spawn(async move {
-            usage::record_request(
-                db,
-                rid,
-                err_model,
-                err_req_model,
-                usage::TokenUsage {
-                    input_tokens: 0,
-                    output_tokens: 0,
-                    cache_read_tokens: 0,
-                    cache_creation_tokens: 0,
-                },
-                latency_ms,
-                None,
-                status_code,
-                is_stream,
-                err_msg,
-                err_channel_id,
-                err_key_id,
-            )
-            .await;
-        });
+        let req = state
+            .http_client
+            .post(&upstream_url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&openai_body);
 
-        return Err(ProxyError::UpstreamError {
-            status: status_code,
-            body: body_text,
-        });
+        // 发送请求
+        let send_result = req.send().await;
+
+        match send_result {
+            Err(e) => {
+                log::error!("[cc-proxy] 转发失败 (attempt {}): {e}", attempt + 1);
+
+                // 上报密钥使用失败（网络错误，status_code = None）
+                if let Some(ref kid) = key_id {
+                    let pool = state.key_pool.clone();
+                    let kid = kid.clone();
+                    tokio::spawn(async move { pool.report_result(&kid, false, None).await });
+                }
+                if let Some(ref t) = matched_token {
+                    let pool = state.key_pool.clone();
+                    let t = t.clone();
+                    tokio::spawn(async move { pool.report_access_token(&t, false).await });
+                }
+
+                let err = if e.is_timeout() {
+                    ProxyError::Timeout(format!("上游请求超时: {e}"))
+                } else {
+                    ProxyError::ForwardFailed(format!("上游请求失败: {e}"))
+                };
+
+                // 网络错误可重试
+                if attempt + 1 < max_attempts {
+                    last_error = Some(err);
+                    continue;
+                }
+                return Err(err);
+            }
+            Ok(resp) => {
+                let status = resp.status();
+
+                if !status.is_success() {
+                    let status_code = status.as_u16();
+                    let extracted_headers = extract_upstream_headers(resp.headers());
+
+                    // 上报密钥使用失败（带状态码）
+                    if let Some(ref kid) = key_id {
+                        let pool = state.key_pool.clone();
+                        let kid = kid.clone();
+                        let sc = status_code;
+                        tokio::spawn(async move { pool.report_result(&kid, false, Some(sc)).await });
+                    }
+                    if let Some(ref t) = matched_token {
+                        let pool = state.key_pool.clone();
+                        let t = t.clone();
+                        tokio::spawn(async move { pool.report_access_token(&t, false).await });
+                    }
+
+                    // 检查是否可重试
+                    if is_retryable_status(status_code) && attempt + 1 < max_attempts {
+                        let body_text = resp.text().await.ok();
+                        log::warn!(
+                            "[cc-proxy] 上游可重试错误 (attempt {}): status={}, body={:?}",
+                            attempt + 1,
+                            status_code,
+                            body_text.as_deref().unwrap_or("(empty)").chars().take(200).collect::<String>()
+                        );
+                        last_error = Some(ProxyError::UpstreamError {
+                            status: status_code,
+                            body: body_text,
+                            upstream_headers: Some(UpstreamHeaders(extracted_headers)),
+                        });
+                        continue;
+                    }
+
+                    // 不可重试或已耗尽重试次数：直接返回错误
+                    let body_text = resp.text().await.ok();
+                    let latency_ms = start_time.elapsed().as_millis() as u64;
+
+                    log::warn!(
+                        "[cc-proxy] 上游错误: status={}, model={}, body={:?}",
+                        status_code,
+                        request_model,
+                        body_text.as_deref().unwrap_or("(empty)").chars().take(200).collect::<String>()
+                    );
+
+                    // 记录错误请求
+                    let db = Arc::clone(&state.db);
+                    let err_model = actual_model.clone();
+                    let err_req_model = if request_model.is_empty() { None } else { Some(request_model.clone()) };
+                    let err_msg = body_text.as_deref().map(|s| s.chars().take(500).collect::<String>());
+                    let rid = request_id.clone();
+                    let err_channel_id = channel_id.clone();
+                    let err_key_id = key_id.clone().unwrap_or_default();
+                    tokio::spawn(async move {
+                        usage::record_request(
+                            db,
+                            rid,
+                            err_model,
+                            err_req_model,
+                            usage::TokenUsage {
+                                input_tokens: 0,
+                                output_tokens: 0,
+                                cache_read_tokens: 0,
+                                cache_creation_tokens: 0,
+                            },
+                            latency_ms,
+                            None,
+                            status_code,
+                            is_stream,
+                            err_msg,
+                            err_channel_id,
+                            err_key_id,
+                        )
+                        .await;
+                    });
+
+                    return Err(ProxyError::UpstreamError {
+                        status: status_code,
+                        body: body_text,
+                        upstream_headers: Some(UpstreamHeaders(extracted_headers)),
+                    });
+                }
+
+                // 成功响应 — 提取上游头部，跳出重试循环
+                upstream_headers_for_resp = extract_upstream_headers(resp.headers());
+                resp_opt = Some(resp);
+                break;
+            }
+        }
     }
 
-    // 8. 响应转换
+    // 所有重试耗尽仍无成功响应
+    let resp = match resp_opt {
+        Some(r) => r,
+        None => {
+            return Err(last_error.unwrap_or_else(|| {
+                ProxyError::Internal("所有重试均失败，无有效响应".to_string())
+            }));
+        }
+    };
+
+    // 6. 上报密钥使用成功
+    if let Some(ref kid) = last_key_id {
+        let pool = state.key_pool.clone();
+        let kid = kid.clone();
+        tokio::spawn(async move { pool.report_result(&kid, true, Some(200)).await });
+    }
+    if let Some(ref t) = matched_token {
+        let pool = state.key_pool.clone();
+        let t = t.clone();
+        tokio::spawn(async move { pool.report_access_token(&t, true).await });
+    }
+
+    // 7. 响应转换
     if is_stream {
         let db = Arc::clone(&state.db);
         let stream_model = actual_model.clone();
@@ -185,29 +310,26 @@ pub async fn handle_messages(
         let rid = request_id.clone();
         let start = start_time;
 
-        // 创建 usage 收集器，流式解析过程中会填入实际 token 数
+        // 创建 usage 收集器和 done 信号
         let usage_collector = streaming::new_usage_collector();
-        let response = handle_streaming_response(resp, usage_collector.clone()).await;
+        let (done_tx, done_rx) = streaming::new_done_signal();
 
-        // 上报密钥使用成功
-        if let Some(ref kid) = key_id {
-            let pool = state.key_pool.clone();
-            let kid = kid.clone();
-            tokio::spawn(async move { pool.report_result(&kid, true).await });
-        }
-        // 上报访问密钥使用成功
-        if let Some(ref t) = matched_token {
-            let pool = state.key_pool.clone();
-            let t = t.clone();
-            tokio::spawn(async move { pool.report_access_token(&t, true).await });
-        }
+        let response = handle_streaming_response(
+            resp,
+            usage_collector.clone(),
+            Some(done_tx),
+            upstream_headers_for_resp,
+        ).await;
 
-        // 延迟记录 usage：等流传输完毕后从 collector 读取实际值
-        let stream_channel_id = channel_id.clone();
-        let stream_key_id = key_id.clone().unwrap_or_default();
+        // 延迟记录 usage：等流传输完毕（done 信号）后从 collector 读取实际值
+        let stream_channel_id = last_channel_id.clone();
+        let stream_key_id = last_key_id.clone().unwrap_or_default();
         tokio::spawn(async move {
-            // 等待一段时间让流传输完成（collector 在流最后的 chunk 中被更新）
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            // 等待流结束信号，最多 5 分钟超时兜底
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(300),
+                done_rx,
+            ).await;
             let latency_ms = start.elapsed().as_millis() as u64;
             let collected = usage_collector.lock().map(|c| c.clone()).unwrap_or_default();
             usage::record_request(
@@ -222,7 +344,7 @@ pub async fn handle_messages(
                     cache_creation_tokens: collected.cache_creation_tokens,
                 },
                 latency_ms,
-                None,
+                collected.first_token_ms,
                 200,
                 true,
                 None,
@@ -234,19 +356,6 @@ pub async fn handle_messages(
 
         response
     } else {
-        // 上报密钥使用成功（非流式）
-        if let Some(ref kid) = key_id {
-            let pool = state.key_pool.clone();
-            let kid = kid.clone();
-            tokio::spawn(async move { pool.report_result(&kid, true).await });
-        }
-        // 上报访问密钥使用成功
-        if let Some(ref t) = matched_token {
-            let pool = state.key_pool.clone();
-            let t = t.clone();
-            tokio::spawn(async move { pool.report_access_token(&t, true).await });
-        }
-
         handle_non_streaming_response(
             resp,
             Arc::clone(&state.db),
@@ -254,8 +363,8 @@ pub async fn handle_messages(
             actual_model,
             if request_model.is_empty() { None } else { Some(request_model) },
             start_time,
-            channel_id,
-            key_id.clone().unwrap_or_default(),
+            last_channel_id,
+            last_key_id.clone().unwrap_or_default(),
         )
         .await
     }
@@ -265,9 +374,11 @@ pub async fn handle_messages(
 async fn handle_streaming_response(
     resp: reqwest::Response,
     usage_collector: streaming::StreamUsageCollector,
+    done_signal: Option<tokio::sync::oneshot::Sender<()>>,
+    upstream_headers: axum::http::HeaderMap,
 ) -> Result<axum::response::Response, ProxyError> {
     let stream = resp.bytes_stream();
-    let sse_stream = streaming::create_anthropic_sse_stream(stream, usage_collector);
+    let sse_stream = streaming::create_anthropic_sse_stream(stream, usage_collector, done_signal);
 
     let mut headers = axum::http::HeaderMap::new();
     headers.insert(
@@ -282,6 +393,10 @@ async fn handle_streaming_response(
         "Connection",
         axum::http::HeaderValue::from_static("keep-alive"),
     );
+    // 透传上游响应头到流式响应
+    for (key, value) in upstream_headers.iter() {
+        headers.insert(key.clone(), value.clone());
+    }
 
     let body = axum::body::Body::from_stream(sse_stream);
     Ok((headers, body).into_response())

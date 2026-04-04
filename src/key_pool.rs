@@ -80,12 +80,27 @@ impl KeyPool {
     }
 
     /// 上报密钥使用结果，更新统计和熔断器状态
-    pub async fn report_result(&self, key_id: &str, success: bool) {
-        // 更新熔断器状态
+    ///
+    /// `status_code`: 上游 HTTP 状态码，None 表示网络错误（无响应）。
+    /// 仅在服务端错误（5xx）、限流（429/529）、网络错误时触发熔断；
+    /// 客户端错误（4xx，除 429 外）视为密钥正常，不计入熔断失败。
+    pub async fn report_result(&self, key_id: &str, success: bool, status_code: Option<u16>) {
+        // 更新熔断器状态：根据状态码智能判断
         if success {
             self.circuit_breaker.record_success(key_id);
         } else {
-            self.circuit_breaker.record_failure(key_id);
+            let should_fuse = match status_code {
+                None => true, // 网络错误，触发熔断
+                Some(429) | Some(529) => true, // 限流/过载，触发熔断
+                Some(code) if code >= 500 => true, // 服务端错误，触发熔断
+                Some(_) => false, // 4xx 客户端错误（除 429），不触发熔断
+            };
+            if should_fuse {
+                self.circuit_breaker.record_failure(key_id);
+            } else {
+                // 客户端错误不代表密钥有问题，记为成功以维持熔断器健康状态
+                self.circuit_breaker.record_success(key_id);
+            }
         }
 
         let db = self.db.clone();

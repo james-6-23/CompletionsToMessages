@@ -10,14 +10,35 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 /// 流式响应中收集的 usage 信息
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct StreamUsage {
     pub input_tokens: u32,
     pub output_tokens: u32,
     pub cache_read_tokens: u32,
     pub cache_creation_tokens: u32,
+    /// 首个内容 token 的耗时（毫秒），从流开始时刻算起
+    pub first_token_ms: Option<u64>,
+    /// 流开始时刻（内部使用，不对外序列化）
+    stream_start: Instant,
+    /// 首次收到内容 delta 的标记（内部使用）
+    first_content_received: bool,
+}
+
+impl Default for StreamUsage {
+    fn default() -> Self {
+        Self {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            first_token_ms: None,
+            stream_start: Instant::now(),
+            first_content_received: false,
+        }
+    }
 }
 
 /// 线程安全的 usage 收集器
@@ -26,6 +47,11 @@ pub type StreamUsageCollector = Arc<Mutex<StreamUsage>>;
 /// 创建新的 usage 收集器
 pub fn new_usage_collector() -> StreamUsageCollector {
     Arc::new(Mutex::new(StreamUsage::default()))
+}
+
+/// 创建 done 信号对，用于流结束时通知 usage 记录任务
+pub fn new_done_signal() -> (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) {
+    tokio::sync::oneshot::channel()
 }
 
 /// OpenAI 流式响应数据结构
@@ -105,11 +131,15 @@ struct ToolBlockState {
 }
 
 /// 创建 Anthropic SSE 流，同时通过 `usage_collector` 收集 token 使用量
+///
+/// `done_signal`: 流结束（message_stop）时发送信号，通知 usage 记录任务可以读取 collector
 pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
     stream: impl Stream<Item = Result<Bytes, E>> + Send + 'static,
     usage_collector: StreamUsageCollector,
+    done_signal: Option<tokio::sync::oneshot::Sender<()>>,
 ) -> impl Stream<Item = Result<Bytes, std::io::Error>> + Send {
     async_stream::stream! {
+        let mut done_tx = done_signal;
         let mut buffer = String::new();
         let mut message_id = None;
         let mut current_model = None;
@@ -145,6 +175,10 @@ pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
                                         serde_json::to_string(&event).unwrap_or_default());
                                     log::debug!("[cc-proxy] >>> Anthropic SSE: message_stop");
                                     yield Ok(Bytes::from(sse_data));
+                                    // 流结束，发送 done 信号通知 usage 记录任务
+                                    if let Some(tx) = done_tx.take() {
+                                        let _ = tx.send(());
+                                    }
                                     continue;
                                 }
 
@@ -196,8 +230,16 @@ pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
                                             has_sent_message_start = true;
                                         }
 
-                                        // 处理 reasoning（thinking）
+                                        // 处理 reasoning（thinking）— 记录首 token 时间
                                         if let Some(reasoning) = &choice.delta.reasoning {
+                                            if !reasoning.is_empty() {
+                                                if let Ok(mut c) = usage_collector.lock() {
+                                                    if !c.first_content_received {
+                                                        c.first_content_received = true;
+                                                        c.first_token_ms = Some(c.stream_start.elapsed().as_millis() as u64);
+                                                    }
+                                                }
+                                            }
                                             if current_non_tool_block_type != Some("thinking") {
                                                 if let Some(index) = current_non_tool_block_index.take() {
                                                     let event = json!({
@@ -240,9 +282,15 @@ pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
                                             }
                                         }
 
-                                        // 处理文本内容
+                                        // 处理文本内容 — 记录首 token 时间
                                         if let Some(content) = &choice.delta.content {
                                             if !content.is_empty() {
+                                                if let Ok(mut c) = usage_collector.lock() {
+                                                    if !c.first_content_received {
+                                                        c.first_content_received = true;
+                                                        c.first_token_ms = Some(c.stream_start.elapsed().as_millis() as u64);
+                                                    }
+                                                }
                                                 if current_non_tool_block_type != Some("text") {
                                                     if let Some(index) = current_non_tool_block_index.take() {
                                                         let event = json!({
@@ -496,6 +544,10 @@ pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
                     let sse_data = format!("event: error\ndata: {}\n\n",
                         serde_json::to_string(&error_event).unwrap_or_default());
                     yield Ok(Bytes::from(sse_data));
+                    // 流出错也发送 done 信号，避免 usage 记录任务永远等待
+                    if let Some(tx) = done_tx.take() {
+                        let _ = tx.send(());
+                    }
                     break;
                 }
             }
@@ -555,7 +607,7 @@ mod tests {
         );
         let upstream = stream::iter(vec![Ok::<_, std::io::Error>(Bytes::from(input.as_bytes().to_vec()))]);
         let collector = new_usage_collector();
-        let converted = create_anthropic_sse_stream(upstream, collector);
+        let converted = create_anthropic_sse_stream(upstream, collector, None);
         let chunks: Vec<_> = converted.collect().await;
 
         let merged = chunks.into_iter()
