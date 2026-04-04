@@ -3,7 +3,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { UsageSummaryCards } from './UsageSummaryCards';
 import { UsageTrendChart } from './UsageTrendChart';
-import { useUsageSummary, useUsageTrends, useEndpoints } from '@/hooks/use-usage';
+import { useUsageSummary, useUsageTrends, useEndpoints, useRpm } from '@/hooks/use-usage';
 import type { TimeRange } from '@/types/usage';
 import { Timer, RefreshCw } from 'lucide-react';
 
@@ -34,6 +34,7 @@ export function UsageDashboard() {
   const summary = useUsageSummary(hours, refreshMs, channelId);
   const trends = useUsageTrends(hours, refreshMs, channelId);
   const { data: endpoints } = useEndpoints();
+  const rpm = useRpm(refreshMs, channelId);
 
   function cycleRefresh() {
     setRefreshIdx((i) => (i + 1) % REFRESH_OPTIONS.length);
@@ -85,7 +86,7 @@ export function UsageDashboard() {
       </div>
 
       {/* 汇总卡片 */}
-      <UsageSummaryCards data={summary.data} loading={summary.loading} />
+      <UsageSummaryCards data={summary.data} loading={summary.loading} rpm={rpm} />
 
       {/* 趋势图 */}
       <UsageTrendChart data={trends.data} loading={trends.loading} timeRange={timeRange} />

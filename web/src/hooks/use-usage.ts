@@ -119,3 +119,23 @@ export function useEndpoints() {
 
   return { data, loading, refresh };
 }
+
+/** 实时 RPM：每隔 refreshMs 查询最近 1 分钟的请求数 */
+export function useRpm(refreshMs: number, channelId?: string) {
+  const [rpm, setRpm] = useState<number | null>(null);
+
+  const refresh = useCallback(() => {
+    api.getUsageSummary(1, channelId, 1)
+      .then(d => setRpm(d.total_requests))
+      .catch(console.error);
+  }, [channelId]);
+
+  useEffect(() => {
+    refresh();
+    const interval = refreshMs > 0 ? refreshMs : 5000;
+    const timer = setInterval(refresh, interval);
+    return () => clearInterval(timer);
+  }, [refresh, refreshMs]);
+
+  return rpm;
+}

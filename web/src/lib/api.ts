@@ -66,8 +66,13 @@ export const api = {
       body: JSON.stringify({ secret }),
     }).then(r => r.json() as Promise<{ valid: boolean; auth_required: boolean }>),
 
-  getUsageSummary: (hours: number, channelId?: string) => {
-    const sp = new URLSearchParams({ hours: String(hours) });
+  getUsageSummary: (hours: number, channelId?: string, minutes?: number) => {
+    const sp = new URLSearchParams();
+    if (minutes) {
+      sp.set('minutes', String(minutes));
+    } else {
+      sp.set('hours', String(hours));
+    }
     if (channelId) sp.set('channel_id', channelId);
     return fetchJson<UsageSummary>(`${BASE}/api/stats/summary?${sp}`);
   },

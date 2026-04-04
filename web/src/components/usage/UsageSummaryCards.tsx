@@ -1,10 +1,11 @@
-import { Activity, DollarSign, Layers, Database } from 'lucide-react';
+import { Activity, DollarSign, Layers, Database, Gauge } from 'lucide-react';
 import type { UsageSummary } from '@/types/usage';
 import { fmtInt, fmtUsd, parseFiniteNumber } from './format';
 
 interface Props {
   data: UsageSummary | null;
   loading: boolean;
+  rpm: number | null;
 }
 
 interface StatCardProps {
@@ -41,11 +42,11 @@ function StatCard({ icon, label, value, subValues, iconBg, iconColor }: StatCard
   );
 }
 
-export function UsageSummaryCards({ data, loading }: Props) {
+export function UsageSummaryCards({ data, loading, rpm }: Props) {
   if (loading || !data) {
     return (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
           <div key={i} className="h-[108px] animate-pulse rounded-2xl border border-border/50 bg-card" />
         ))}
       </div>
@@ -57,7 +58,14 @@ export function UsageSummaryCards({ data, loading }: Props) {
   const costDigits = costNum !== null && costNum < 1 ? 4 : 2;
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <StatCard
+        icon={<Gauge className="h-6 w-6" />}
+        label="实时 RPM"
+        value={rpm !== null ? fmtInt(rpm) : '-'}
+        iconBg="bg-rose-500/10"
+        iconColor="text-rose-500"
+      />
       <StatCard
         icon={<Activity className="h-6 w-6" />}
         label="总请求数"

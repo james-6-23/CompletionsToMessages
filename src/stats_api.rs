@@ -20,6 +20,8 @@ pub struct DaysParam {
     pub days: Option<u32>,
     /// 查询最近 N 小时（优先于 days）
     pub hours: Option<u32>,
+    /// 查询最近 N 分钟（优先于 hours）
+    pub minutes: Option<u32>,
     pub channel_id: Option<String>,
 }
 
@@ -35,9 +37,11 @@ pub struct LogsParam {
 }
 
 /// 根据参数计算起止时间戳（Unix 秒）
-fn time_range_from_params(hours: Option<u32>, days: Option<u32>) -> (i64, i64) {
+fn time_range_from_params(minutes: Option<u32>, hours: Option<u32>, days: Option<u32>) -> (i64, i64) {
     let now = chrono::Utc::now().timestamp();
-    let secs = if let Some(h) = hours {
+    let secs = if let Some(m) = minutes {
+        m.max(1) as i64 * 60
+    } else if let Some(h) = hours {
         h.max(1) as i64 * 3600
     } else {
         days.unwrap_or(1).max(1) as i64 * 86400
@@ -62,7 +66,7 @@ pub async fn get_summary(
     State(state): State<AppState>,
     Query(params): Query<DaysParam>,
 ) -> Result<Json<Value>, ProxyError> {
-    let (start_ts, end_ts) = time_range_from_params(params.hours, params.days);
+    let (start_ts, end_ts) = time_range_from_params(params.minutes, params.hours, params.days);
     let db = Arc::clone(&state.db);
     let channel_id = params.channel_id;
 
@@ -81,7 +85,7 @@ pub async fn get_trends(
     State(state): State<AppState>,
     Query(params): Query<DaysParam>,
 ) -> Result<Json<Value>, ProxyError> {
-    let (start_ts, end_ts) = time_range_from_params(params.hours, params.days);
+    let (start_ts, end_ts) = time_range_from_params(params.minutes, params.hours, params.days);
     let interval_secs = interval_from_span(end_ts - start_ts);
     let db = Arc::clone(&state.db);
     let channel_id = params.channel_id;
@@ -101,7 +105,7 @@ pub async fn get_models(
     State(state): State<AppState>,
     Query(params): Query<DaysParam>,
 ) -> Result<Json<Value>, ProxyError> {
-    let (start_ts, end_ts) = time_range_from_params(None, params.days);
+    let (start_ts, end_ts) = time_range_from_params(None, None, params.days);
     let db = Arc::clone(&state.db);
 
     let stats = tokio::task::spawn_blocking(move || db.get_model_stats(start_ts, end_ts))
@@ -119,7 +123,7 @@ pub async fn get_logs(
 ) -> Result<Json<Value>, ProxyError> {
     let page = params.page.unwrap_or(1).max(1);
     let page_size = params.page_size.unwrap_or(20).min(100);
-    let (start_ts, end_ts) = time_range_from_params(None, params.days);
+    let (start_ts, end_ts) = time_range_from_params(None, None, params.days);
     let status_code = params.status_code;
     let model = params.model.clone();
     let channel_id = params.channel_id.clone();

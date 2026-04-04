@@ -580,13 +580,13 @@ function ChannelDetailPanel({
             <div className="flex items-center gap-3 pt-1">
               <span className="text-xs font-medium text-muted-foreground shrink-0">测试模型:</span>
               <Select value={testModel || undefined} onValueChange={setTestModel} onOpenChange={o => { if (o && models.length === 0) fetchModels(); }}>
-                <SelectTrigger className="w-60 h-7 text-xs">
+                <SelectTrigger className="w-64 h-8 text-sm font-mono font-semibold">
                   <SelectValue placeholder={loadingModels ? '加载中...' : '选择模型'} />
                 </SelectTrigger>
-                <SelectContent className="max-h-[280px]">
-                  {models.map(m => <SelectItem key={m} value={m} className="text-xs font-mono">{m}</SelectItem>)}
+                <SelectContent className="max-h-[320px]">
+                  {models.map(m => <SelectItem key={m} value={m} className="text-sm font-mono font-medium">{m}</SelectItem>)}
                   {models.length === 0 && !loadingModels && (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">暂无模型</div>
+                    <div className="px-2 py-1.5 text-sm text-muted-foreground">暂无模型</div>
                   )}
                 </SelectContent>
               </Select>
