@@ -1,0 +1,40 @@
+[package]
+name = "completions-to-messages"
+version = "0.1.0"
+edition = "2021"
+description = "OpenAI Chat Completions ↔ Anthropic Messages API reverse proxy"
+
+[dependencies]
+# Web 框架
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "fs"] }
+http = "1"
+
+# 异步运行时
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "signal", "net"] }
+futures = "0.3"
+async-stream = "0.3"
+bytes = "1.5"
+
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+serde_yaml = "0.9"
+
+# HTTP 客户端
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+
+# 错误处理
+thiserror = "2.0"
+
+# 日志
+log = "0.4"
+env_logger = "0.11"
+
+# 工具
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }
+rusqlite = { version = "0.34", features = ["bundled"] }
+rust_decimal = { version = "1.37", features = ["serde", "serde-with-str"] }
+uuid = { version = "1", features = ["v4"] }

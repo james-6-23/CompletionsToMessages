@@ -1,0 +1,78 @@
+export interface UsageSummary {
+  total_requests: number;
+  total_cost: string;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cache_creation_tokens: number;
+  total_cache_read_tokens: number;
+}
+
+export interface DailyStats {
+  date: string;
+  request_count: number;
+  total_cost: string;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cache_creation_tokens: number;
+  total_cache_read_tokens: number;
+}
+
+export interface RequestLog {
+  request_id: string;
+  model: string;
+  request_model: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  total_cost_usd: string;
+  latency_ms: number;
+  first_token_ms: number | null;
+  status_code: number;
+  is_streaming: boolean;
+  error_message: string | null;
+  created_at: number;
+}
+
+export interface PaginatedLogs {
+  data: RequestLog[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ModelStats {
+  model: string;
+  request_count: number;
+  total_tokens: number;
+  total_cost: string;
+  avg_cost_per_request: string;
+}
+
+export interface ModelPricing {
+  model_id: string;
+  display_name: string;
+  input_cost_per_million: string;
+  output_cost_per_million: string;
+  cache_read_cost_per_million: string;
+  cache_creation_cost_per_million: string;
+}
+
+export type TimeRange = "1d" | "7d";
+
+export interface ApiKey {
+  id: string;
+  api_key_masked: string;  // e.g. "sk_c...afo1"
+  label: string;
+  is_active: boolean;
+  total_requests: number;
+  failed_requests: number;
+  last_used_at: number | null;
+  created_at: number;
+}
+
+export interface TestKeyResult {
+  valid: boolean;
+  status?: number;
+  error?: string;
+}

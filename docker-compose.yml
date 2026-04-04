@@ -1,0 +1,15 @@
+services:
+  completions-to-messages:
+    build: .
+    container_name: completions-to-messages
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      - data:/app/data
+    environment:
+      - RUST_LOG=info
+      - ADMIN_SECRET=${ADMIN_SECRET}
+
+volumes:
+  data:

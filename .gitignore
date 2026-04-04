@@ -1,0 +1,28 @@
+# Rust
+/target/
+
+# 参考项目（不纳入版本控制）
+/cc-switch/
+
+# SQLite 数据库（运行时生成）
+*.db
+*.db-journal
+*.db-wal
+
+# 前端
+/web/node_modules/
+/web/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 环境/密钥
+.env
+!.env.example

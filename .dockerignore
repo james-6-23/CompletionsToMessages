@@ -1,0 +1,10 @@
+target/
+web/node_modules/
+web/dist/
+*.db
+*.db-journal
+*.db-wal
+.git/
+.idea/
+.vscode/
+config.yaml
