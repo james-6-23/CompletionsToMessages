@@ -505,3 +505,41 @@ async fn handle_non_streaming_response(
 
     Ok(Json(anthropic_response).into_response())
 }
+
+/// 处理 /v1/models 请求 — 透传上游模型列表
+pub async fn handle_models(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<axum::response::Response, ProxyError> {
+    // 认证校验（与 /v1/messages 一致）
+    let matched_token = auth::validate_auth(&headers, &state.db, &state.config.auth_token)?;
+    let token_for_pool = matched_token.as_deref().unwrap_or("");
+
+    // 选取一个可用 key 获取上游 URL
+    let (_key_id, api_key, upstream_base, _channel_id) =
+        state.key_pool.next_key(token_for_pool).await?;
+
+    let models_url = format!(
+        "{}/v1/models",
+        upstream_base.trim_end_matches('/')
+    );
+
+    let resp = state
+        .http_client
+        .get(&models_url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .send()
+        .await
+        .map_err(|e| ProxyError::ForwardFailed(format!("获取模型列表失败: {e}")))?;
+
+    let status = resp.status();
+    let body_bytes = resp.bytes().await.map_err(|e| {
+        ProxyError::ForwardFailed(format!("读取模型列表响应失败: {e}"))
+    })?;
+
+    Ok((
+        axum::http::StatusCode::from_u16(status.as_u16()).unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        body_bytes,
+    ).into_response())
+}

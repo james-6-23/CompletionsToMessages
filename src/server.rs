@@ -132,6 +132,7 @@ pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> 
     let mut app = Router::new()
         // 代理核心路由（用客户端 auth_token 认证）
         .route("/v1/messages", post(handler::handle_messages))
+        .route("/v1/models", get(handler::handle_models))
         .route("/health", get(handler::health_check))
         // 管理 API（用 ADMIN_SECRET 认证）
         .nest("/api", admin_api)
