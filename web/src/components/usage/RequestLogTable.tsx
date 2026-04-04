@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { useRequestLogs } from '@/hooks/use-usage';
+import { api } from '@/lib/api';
 import type { TimeRange, Endpoint } from '@/types/usage';
 import { fmtInt, fmtUsd, fmtTimestamp, fmtDuration } from './format';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -22,6 +23,22 @@ export function RequestLogTable({ timeRange, refreshMs, endpoints }: Props) {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [modelFilter, setModelFilter] = useState('');
   const [channelFilter, setChannelFilter] = useState<string>('all');
+
+  // key 序号映射：{ keyId → 序号 }，按每个 endpoint 内的 created_at 排序
+  const [keyIndexMap, setKeyIndexMap] = useState<Record<string, number>>({});
+  useEffect(() => {
+    api.listApiKeys().then(keys => {
+      const grouped: Record<string, string[]> = {};
+      for (const k of keys) {
+        (grouped[k.endpoint_id] ||= []).push(k.id);
+      }
+      const map: Record<string, number> = {};
+      for (const ids of Object.values(grouped)) {
+        ids.forEach((id, i) => { map[id] = i + 1; });
+      }
+      setKeyIndexMap(map);
+    }).catch(() => {});
+  }, []);
 
   const daysMap: Record<string, number> = { '1h': 1, '6h': 1, '1d': 1, '7d': 7, '30d': 30 };
   const days = daysMap[timeRange] ?? 1;
@@ -126,8 +143,15 @@ export function RequestLogTable({ timeRange, refreshMs, endpoints }: Props) {
                 <TableRow key={log.request_id}>
                   <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{fmtTimestamp(log.created_at)}</TableCell>
                   <TableCell className="text-xs">
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium truncate max-w-[120px]">
-                      {getChannelName(log.channel_id)}
+                    <span className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium truncate max-w-[120px]">
+                        {getChannelName(log.channel_id)}
+                      </span>
+                      {log.key_id && keyIndexMap[log.key_id] && (
+                        <span className="inline-flex items-center px-1 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono text-[10px] font-bold">
+                          #{keyIndexMap[log.key_id]}
+                        </span>
+                      )}
                     </span>
                   </TableCell>
                   <TableCell className="font-mono text-xs">{log.model}</TableCell>

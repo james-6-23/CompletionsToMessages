@@ -32,6 +32,7 @@ export interface RequestLog {
   is_streaming: boolean;
   error_message: string | null;
   channel_id: string;
+  key_id: string;
   created_at: number;
 }
 

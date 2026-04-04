@@ -109,6 +109,7 @@ pub async fn record_request(
     is_streaming: bool,
     error_message: Option<String>,
     channel_id: String,
+    key_id: String,
 ) {
     // 在阻塞线程中执行数据库操作
     let result = tokio::task::spawn_blocking(move || {
@@ -139,6 +140,7 @@ pub async fn record_request(
             is_streaming,
             error_message.as_deref(),
             &channel_id,
+            &key_id,
             created_at,
         )
     })

@@ -3,7 +3,9 @@
 //! 使用 Round-Robin 策略从数据库中选取活跃密钥，
 //! 每个密钥绑定到一个上游端点，选中后返回 (key_id, api_key, base_url)。
 //! 无可用密钥时回退到配置文件中的 fallback 密钥和 URL。
+//! 集成熔断器，连续失败的密钥会被暂时跳过。
 
+use crate::circuit_breaker::CircuitBreaker;
 use crate::config::ProxyConfig;
 use crate::database::Database;
 use crate::error::ProxyError;
@@ -14,6 +16,7 @@ pub struct KeyPool {
     db: Arc<Database>,
     config: Arc<ProxyConfig>,
     counter: AtomicU64,
+    circuit_breaker: CircuitBreaker,
 }
 
 impl KeyPool {
@@ -22,6 +25,8 @@ impl KeyPool {
             db,
             config,
             counter: AtomicU64::new(0),
+            // 连续 3 次失败触发熔断，半开状态连续 2 次成功恢复，熔断超时 60 秒
+            circuit_breaker: CircuitBreaker::new(3, 2, 60),
         }
     }
 
@@ -51,8 +56,21 @@ impl KeyPool {
             ));
         }
 
-        let idx = self.counter.fetch_add(1, Ordering::Relaxed) as usize % keys.len();
-        let selected = &keys[idx];
+        // 过滤出熔断器允许的密钥
+        let available_keys: Vec<_> = keys.iter()
+            .filter(|k| self.circuit_breaker.is_available(&k.id))
+            .collect();
+
+        let idx = self.counter.fetch_add(1, Ordering::Relaxed) as usize;
+
+        // 如果所有密钥都被熔断，仍然使用轮询选取（不完全阻塞）
+        let selected = if available_keys.is_empty() {
+            log::warn!("[cc-proxy] 所有密钥均被熔断，回退到轮询选取");
+            &keys[idx % keys.len()]
+        } else {
+            available_keys[idx % available_keys.len()]
+        };
+
         Ok((
             Some(selected.id.clone()),
             selected.api_key.clone(),
@@ -61,8 +79,15 @@ impl KeyPool {
         ))
     }
 
-    /// 上报密钥使用结果，更新统计
+    /// 上报密钥使用结果，更新统计和熔断器状态
     pub async fn report_result(&self, key_id: &str, success: bool) {
+        // 更新熔断器状态
+        if success {
+            self.circuit_breaker.record_success(key_id);
+        } else {
+            self.circuit_breaker.record_failure(key_id);
+        }
+
         let db = self.db.clone();
         let key_id = key_id.to_string();
         let _ = tokio::task::spawn_blocking(move || {

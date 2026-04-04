@@ -69,6 +69,7 @@ pub struct RequestLogEntry {
     pub is_streaming: bool,
     pub error_message: Option<String>,
     pub channel_id: String,
+    pub key_id: String,
     pub created_at: i64,
 }
 
@@ -286,6 +287,28 @@ impl Database {
             }
         }
 
+        // 迁移：为 proxy_request_logs 添加 key_id 列
+        {
+            let has_col: bool = conn
+                .prepare("PRAGMA table_info(proxy_request_logs)")
+                .and_then(|mut stmt| {
+                    let names: Vec<String> = stmt
+                        .query_map([], |row| row.get::<_, String>(1))
+                        .unwrap()
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    Ok(names.contains(&"key_id".to_string()))
+                })
+                .unwrap_or(false);
+
+            if !has_col {
+                conn.execute_batch(
+                    "ALTER TABLE proxy_request_logs ADD COLUMN key_id TEXT NOT NULL DEFAULT '';"
+                ).map_err(|e| format!("迁移 proxy_request_logs 添加 key_id 列失败: {e}"))?;
+                log::info!("[cc-proxy] 已迁移 proxy_request_logs 表，添加 key_id 列");
+            }
+        }
+
         // 迁移：将旧的 proxy_settings.upstream_base_url 迁移到 upstream_endpoints 表
         {
             let old_url: Option<String> = conn
@@ -431,6 +454,7 @@ impl Database {
         is_streaming: bool,
         error_message: Option<&str>,
         channel_id: &str,
+        key_id: &str,
         created_at: i64,
     ) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
@@ -439,14 +463,14 @@ impl Database {
                 request_id, model, request_model, input_tokens, output_tokens,
                 cache_read_tokens, cache_creation_tokens,
                 input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
-                latency_ms, first_token_ms, status_code, is_streaming, error_message, channel_id, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                latency_ms, first_token_ms, status_code, is_streaming, error_message, channel_id, key_id, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             params![
                 request_id, model, request_model,
                 input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
                 input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
                 latency_ms as i64, first_token_ms.map(|v| v as i64),
-                status_code as i32, is_streaming as i32, error_message, channel_id, created_at
+                status_code as i32, is_streaming as i32, error_message, channel_id, key_id, created_at
             ],
         ).map_err(|e| format!("插入请求日志失败: {e}"))?;
         Ok(())
@@ -656,7 +680,7 @@ impl Database {
             "SELECT request_id, model, request_model, input_tokens, output_tokens,
                     cache_read_tokens, cache_creation_tokens,
                     input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
-                    latency_ms, first_token_ms, status_code, is_streaming, error_message, channel_id, created_at
+                    latency_ms, first_token_ms, status_code, is_streaming, error_message, channel_id, key_id, created_at
             FROM proxy_request_logs
             WHERE {where_clause}
             ORDER BY created_at DESC
@@ -687,7 +711,8 @@ impl Database {
                 is_streaming: row.get::<_, i32>(15)? != 0,
                 error_message: row.get(16)?,
                 channel_id: row.get(17)?,
-                created_at: row.get(18)?,
+                key_id: row.get(18)?,
+                created_at: row.get(19)?,
             })
         };
 

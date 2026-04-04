@@ -147,6 +147,7 @@ pub async fn handle_messages(
         let err_msg = body_text.as_deref().map(|s| s.chars().take(500).collect::<String>());
         let rid = request_id.clone();
         let err_channel_id = channel_id.clone();
+        let err_key_id = key_id.clone().unwrap_or_default();
         tokio::spawn(async move {
             usage::record_request(
                 db,
@@ -165,6 +166,7 @@ pub async fn handle_messages(
                 is_stream,
                 err_msg,
                 err_channel_id,
+                err_key_id,
             )
             .await;
         });
@@ -202,6 +204,7 @@ pub async fn handle_messages(
 
         // 延迟记录 usage：等流传输完毕后从 collector 读取实际值
         let stream_channel_id = channel_id.clone();
+        let stream_key_id = key_id.clone().unwrap_or_default();
         tokio::spawn(async move {
             // 等待一段时间让流传输完成（collector 在流最后的 chunk 中被更新）
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -224,6 +227,7 @@ pub async fn handle_messages(
                 true,
                 None,
                 stream_channel_id,
+                stream_key_id,
             )
             .await;
         });
@@ -251,6 +255,7 @@ pub async fn handle_messages(
             if request_model.is_empty() { None } else { Some(request_model) },
             start_time,
             channel_id,
+            key_id.clone().unwrap_or_default(),
         )
         .await
     }
@@ -291,6 +296,7 @@ async fn handle_non_streaming_response(
     request_model: Option<String>,
     start_time: std::time::Instant,
     channel_id: String,
+    key_id: String,
 ) -> Result<axum::response::Response, ProxyError> {
     let body_bytes = resp.bytes().await.map_err(|e| {
         log::error!("[cc-proxy] 读取上游响应失败: {e}");
@@ -319,7 +325,7 @@ async fn handle_non_streaming_response(
         let m = model;
         let rm = request_model;
         tokio::spawn(async move {
-            usage::record_request(db, rid, m, rm, u, latency_ms, None, 200, false, None, channel_id).await;
+            usage::record_request(db, rid, m, rm, u, latency_ms, None, 200, false, None, channel_id, key_id).await;
         });
     }
 

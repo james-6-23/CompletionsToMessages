@@ -3,6 +3,7 @@
 //! 让 Claude Code CLI 通过 OpenAI 兼容端点工作
 
 mod auth;
+mod circuit_breaker;
 mod config;
 mod database;
 mod error;
