@@ -27,9 +27,9 @@ impl KeyPool {
 
     /// 轮询选取下一个可用密钥（基于入站 token 过滤渠道）
     ///
-    /// 返回 `(key_id, api_key_value, upstream_base_url)`：
+    /// 返回 `(key_id, api_key_value, upstream_base_url, endpoint_id)`：
     /// - key_id 为 Some 时表示来自数据库，None 时表示来自配置 fallback
-    pub async fn next_key(&self, inbound_token: &str) -> Result<(Option<String>, String, String), ProxyError> {
+    pub async fn next_key(&self, inbound_token: &str) -> Result<(Option<String>, String, String, String), ProxyError> {
         let db = self.db.clone();
         let token = inbound_token.to_string();
         let keys = tokio::task::spawn_blocking(move || db.get_active_keys_for_token(&token))
@@ -42,7 +42,7 @@ impl KeyPool {
             if let Some(ref upstream) = self.config.upstream {
                 if let Some(ref key) = upstream.api_key {
                     if !key.is_empty() && !upstream.base_url.is_empty() {
-                        return Ok((None, key.clone(), upstream.base_url.clone()));
+                        return Ok((None, key.clone(), upstream.base_url.clone(), String::new()));
                     }
                 }
             }
@@ -57,6 +57,7 @@ impl KeyPool {
             Some(selected.id.clone()),
             selected.api_key.clone(),
             selected.base_url.clone(),
+            selected.endpoint_id.clone(),
         ))
     }
 

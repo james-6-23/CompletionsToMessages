@@ -18,6 +18,7 @@ use std::sync::Arc;
 pub struct DaysParam {
     /// 查询最近 N 天的数据，默认 1
     pub days: Option<u32>,
+    pub channel_id: Option<String>,
 }
 
 /// 日志查询参数
@@ -28,6 +29,7 @@ pub struct LogsParam {
     pub status_code: Option<u16>,
     pub model: Option<String>,
     pub days: Option<u32>,
+    pub channel_id: Option<String>,
 }
 
 /// 根据天数计算起止时间戳（Unix 秒）
@@ -55,11 +57,14 @@ pub async fn get_summary(
 ) -> Result<Json<Value>, ProxyError> {
     let (start_ts, end_ts) = time_range_from_days(params.days);
     let db = Arc::clone(&state.db);
+    let channel_id = params.channel_id;
 
-    let summary = tokio::task::spawn_blocking(move || db.get_usage_summary(start_ts, end_ts))
-        .await
-        .map_err(|e| ProxyError::Internal(format!("查询任务失败: {e}")))?
-        .map_err(|e| ProxyError::Internal(e))?;
+    let summary = tokio::task::spawn_blocking(move || {
+        db.get_usage_summary(start_ts, end_ts, channel_id.as_deref())
+    })
+    .await
+    .map_err(|e| ProxyError::Internal(format!("查询任务失败: {e}")))?
+    .map_err(|e| ProxyError::Internal(e))?;
 
     Ok(Json(json!(summary)))
 }
@@ -73,9 +78,10 @@ pub async fn get_trends(
     let (start_ts, end_ts) = time_range_from_days(Some(days));
     let interval_secs = interval_from_days(days);
     let db = Arc::clone(&state.db);
+    let channel_id = params.channel_id;
 
     let trends = tokio::task::spawn_blocking(move || {
-        db.get_usage_trends(start_ts, end_ts, interval_secs)
+        db.get_usage_trends(start_ts, end_ts, interval_secs, channel_id.as_deref())
     })
     .await
     .map_err(|e| ProxyError::Internal(format!("查询任务失败: {e}")))?
@@ -110,10 +116,11 @@ pub async fn get_logs(
     let (start_ts, end_ts) = time_range_from_days(params.days);
     let status_code = params.status_code;
     let model = params.model.clone();
+    let channel_id = params.channel_id.clone();
     let db = Arc::clone(&state.db);
 
     let logs = tokio::task::spawn_blocking(move || {
-        db.get_request_logs(page, page_size, status_code, model.as_deref(), start_ts, end_ts)
+        db.get_request_logs(page, page_size, status_code, model.as_deref(), channel_id.as_deref(), start_ts, end_ts)
     })
     .await
     .map_err(|e| ProxyError::Internal(format!("查询任务失败: {e}")))?

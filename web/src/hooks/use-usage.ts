@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
-import type { UsageSummary, DailyStats, ModelStats, PaginatedLogs, ApiKey } from '@/types/usage';
+import type { UsageSummary, DailyStats, ModelStats, PaginatedLogs, ApiKey, Endpoint } from '@/types/usage';
 
-export function useUsageSummary(days: number, refreshMs: number) {
+export function useUsageSummary(days: number, refreshMs: number, channelId?: string) {
   const [data, setData] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(() => {
-    api.getUsageSummary(days).then(setData).catch(console.error).finally(() => setLoading(false));
-  }, [days]);
+    api.getUsageSummary(days, channelId).then(setData).catch(console.error).finally(() => setLoading(false));
+  }, [days, channelId]);
 
   useEffect(() => {
     setLoading(true);
@@ -22,13 +22,13 @@ export function useUsageSummary(days: number, refreshMs: number) {
   return { data, loading, refresh };
 }
 
-export function useUsageTrends(days: number, refreshMs: number) {
+export function useUsageTrends(days: number, refreshMs: number, channelId?: string) {
   const [data, setData] = useState<DailyStats[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(() => {
-    api.getUsageTrends(days).then(setData).catch(console.error).finally(() => setLoading(false));
-  }, [days]);
+    api.getUsageTrends(days, channelId).then(setData).catch(console.error).finally(() => setLoading(false));
+  }, [days, channelId]);
 
   useEffect(() => {
     setLoading(true);
@@ -59,7 +59,7 @@ export function useModelStats(days: number, refreshMs: number) {
   return { data, loading };
 }
 
-export function useRequestLogs(params: { page: number; pageSize: number; statusCode?: number; model?: string; days: number }, refreshMs: number) {
+export function useRequestLogs(params: { page: number; pageSize: number; statusCode?: number; model?: string; days: number; channelId?: string }, refreshMs: number) {
   const [data, setData] = useState<PaginatedLogs | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -72,13 +72,14 @@ export function useRequestLogs(params: { page: number; pageSize: number; statusC
         status_code: params.statusCode,
         model: params.model,
         days: params.days,
+        channel_id: params.channelId,
       }).then(setData).catch(console.error).finally(() => setLoading(false));
     refresh();
     if (refreshMs > 0) {
       const timer = setInterval(refresh, refreshMs);
       return () => clearInterval(timer);
     }
-  }, [params.page, params.pageSize, params.statusCode, params.model, params.days, refreshMs]);
+  }, [params.page, params.pageSize, params.statusCode, params.model, params.days, params.channelId, refreshMs]);
 
   return { data, loading };
 }
@@ -99,6 +100,22 @@ export function useApiKeys(refreshMs: number) {
       return () => clearInterval(timer);
     }
   }, [refresh, refreshMs]);
+
+  return { data, loading, refresh };
+}
+
+export function useEndpoints() {
+  const [data, setData] = useState<Endpoint[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(() => {
+    api.listEndpoints().then(setData).catch(console.error).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    refresh();
+  }, [refresh]);
 
   return { data, loading, refresh };
 }

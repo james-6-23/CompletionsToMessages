@@ -68,6 +68,7 @@ pub struct RequestLogEntry {
     pub status_code: u16,
     pub is_streaming: bool,
     pub error_message: Option<String>,
+    pub channel_id: String,
     pub created_at: i64,
 }
 
@@ -263,6 +264,28 @@ impl Database {
             }
         }
 
+        // 迁移：为 proxy_request_logs 添加 channel_id 列
+        {
+            let has_col: bool = conn
+                .prepare("PRAGMA table_info(proxy_request_logs)")
+                .and_then(|mut stmt| {
+                    let names: Vec<String> = stmt
+                        .query_map([], |row| row.get::<_, String>(1))
+                        .unwrap()
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    Ok(names.contains(&"channel_id".to_string()))
+                })
+                .unwrap_or(false);
+
+            if !has_col {
+                conn.execute_batch(
+                    "ALTER TABLE proxy_request_logs ADD COLUMN channel_id TEXT NOT NULL DEFAULT '';"
+                ).map_err(|e| format!("迁移 proxy_request_logs 添加 channel_id 列失败: {e}"))?;
+                log::info!("[cc-proxy] 已迁移 proxy_request_logs 表，添加 channel_id 列");
+            }
+        }
+
         // 迁移：将旧的 proxy_settings.upstream_base_url 迁移到 upstream_endpoints 表
         {
             let old_url: Option<String> = conn
@@ -407,6 +430,7 @@ impl Database {
         status_code: u16,
         is_streaming: bool,
         error_message: Option<&str>,
+        channel_id: &str,
         created_at: i64,
     ) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
@@ -415,24 +439,24 @@ impl Database {
                 request_id, model, request_model, input_tokens, output_tokens,
                 cache_read_tokens, cache_creation_tokens,
                 input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
-                latency_ms, first_token_ms, status_code, is_streaming, error_message, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                latency_ms, first_token_ms, status_code, is_streaming, error_message, channel_id, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             params![
                 request_id, model, request_model,
                 input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
                 input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
                 latency_ms as i64, first_token_ms.map(|v| v as i64),
-                status_code as i32, is_streaming as i32, error_message, created_at
+                status_code as i32, is_streaming as i32, error_message, channel_id, created_at
             ],
         ).map_err(|e| format!("插入请求日志失败: {e}"))?;
         Ok(())
     }
 
     /// 查询使用统计摘要
-    pub fn get_usage_summary(&self, start_ts: i64, end_ts: i64) -> Result<UsageSummary, String> {
+    pub fn get_usage_summary(&self, start_ts: i64, end_ts: i64, channel_id_filter: Option<&str>) -> Result<UsageSummary, String> {
         let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
-        let mut stmt = conn.prepare(
-            "SELECT
+
+        let mut sql = "SELECT
                 COUNT(*) as total_requests,
                 COALESCE(SUM(CAST(total_cost_usd AS REAL)), 0) as total_cost,
                 COALESCE(SUM(input_tokens), 0) as total_input_tokens,
@@ -440,10 +464,16 @@ impl Database {
                 COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
                 COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens
             FROM proxy_request_logs
-            WHERE created_at >= ?1 AND created_at < ?2"
-        ).map_err(|e| format!("准备查询失败: {e}"))?;
+            WHERE created_at >= ?1 AND created_at < ?2".to_string();
 
-        let result = stmt.query_row(params![start_ts, end_ts], |row| {
+        if channel_id_filter.is_some() {
+            sql.push_str(" AND channel_id = ?3");
+        }
+
+        let mut stmt = conn.prepare(&sql)
+            .map_err(|e| format!("准备查询失败: {e}"))?;
+
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<UsageSummary> {
             Ok(UsageSummary {
                 total_requests: row.get::<_, i64>(0)? as u64,
                 total_cost: format!("{:.6}", row.get::<_, f64>(1)?),
@@ -452,7 +482,13 @@ impl Database {
                 total_cache_creation_tokens: row.get::<_, i64>(4)? as u64,
                 total_cache_read_tokens: row.get::<_, i64>(5)? as u64,
             })
-        }).map_err(|e| format!("查询使用摘要失败: {e}"))?;
+        };
+
+        let result = if let Some(ch) = channel_id_filter {
+            stmt.query_row(params![start_ts, end_ts, ch], map_row)
+        } else {
+            stmt.query_row(params![start_ts, end_ts], map_row)
+        }.map_err(|e| format!("查询使用摘要失败: {e}"))?;
 
         Ok(result)
     }
@@ -463,10 +499,11 @@ impl Database {
         start_ts: i64,
         end_ts: i64,
         interval_secs: i64,
+        channel_id_filter: Option<&str>,
     ) -> Result<Vec<UsageTrend>, String> {
         let conn = self.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
-        let mut stmt = conn.prepare(
-            "SELECT
+
+        let mut sql = "SELECT
                 (created_at / ?3) * ?3 as bucket,
                 COUNT(*) as request_count,
                 COALESCE(SUM(CAST(total_cost_usd AS REAL)), 0) as total_cost,
@@ -475,12 +512,18 @@ impl Database {
                 COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
                 COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens
             FROM proxy_request_logs
-            WHERE created_at >= ?1 AND created_at < ?2
-            GROUP BY bucket
-            ORDER BY bucket ASC"
-        ).map_err(|e| format!("准备查询失败: {e}"))?;
+            WHERE created_at >= ?1 AND created_at < ?2".to_string();
 
-        let rows = stmt.query_map(params![start_ts, end_ts, interval_secs], |row| {
+        if channel_id_filter.is_some() {
+            sql.push_str(" AND channel_id = ?4");
+        }
+
+        sql.push_str(" GROUP BY bucket ORDER BY bucket ASC");
+
+        let mut stmt = conn.prepare(&sql)
+            .map_err(|e| format!("准备查询失败: {e}"))?;
+
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<UsageTrend> {
             let bucket_ts = row.get::<_, i64>(0)?;
             let date = chrono::DateTime::from_timestamp(bucket_ts, 0)
                 .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
@@ -495,7 +538,13 @@ impl Database {
                 cache_creation_tokens: row.get::<_, i64>(5)? as u64,
                 cache_read_tokens: row.get::<_, i64>(6)? as u64,
             })
-        }).map_err(|e| format!("查询使用趋势失败: {e}"))?;
+        };
+
+        let rows = if let Some(ch) = channel_id_filter {
+            stmt.query_map(params![start_ts, end_ts, interval_secs, ch], map_row)
+        } else {
+            stmt.query_map(params![start_ts, end_ts, interval_secs], map_row)
+        }.map_err(|e| format!("查询使用趋势失败: {e}"))?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -550,6 +599,7 @@ impl Database {
         page_size: u32,
         status_code_filter: Option<u16>,
         model_filter: Option<&str>,
+        channel_id_filter: Option<&str>,
         start_ts: i64,
         end_ts: i64,
     ) -> Result<PaginatedLogs, String> {
@@ -565,9 +615,28 @@ impl Database {
         }
         if model_filter.is_some() {
             conditions.push(format!("model LIKE ?{param_index}"));
+            param_index += 1;
+        }
+        if channel_id_filter.is_some() {
+            conditions.push(format!("channel_id = ?{param_index}"));
+            param_index += 1;
         }
 
         let where_clause = conditions.join(" AND ");
+
+        // 收集动态参数
+        let mut dynamic_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        dynamic_params.push(Box::new(start_ts));
+        dynamic_params.push(Box::new(end_ts));
+        if let Some(sc) = status_code_filter {
+            dynamic_params.push(Box::new(sc as i32));
+        }
+        if let Some(ref m) = model_filter {
+            dynamic_params.push(Box::new(format!("%{m}%")));
+        }
+        if let Some(ch) = channel_id_filter {
+            dynamic_params.push(Box::new(ch.to_string()));
+        }
 
         // 查询总数
         let count_sql = format!("SELECT COUNT(*) FROM proxy_request_logs WHERE {where_clause}");
@@ -575,20 +644,9 @@ impl Database {
             let mut stmt = conn.prepare(&count_sql)
                 .map_err(|e| format!("准备计数查询失败: {e}"))?;
 
-            let total: i64 = match (status_code_filter, model_filter) {
-                (Some(sc), Some(m)) => stmt.query_row(
-                    params![start_ts, end_ts, sc as i32, format!("%{m}%")], |row| row.get(0)
-                ),
-                (Some(sc), None) => stmt.query_row(
-                    params![start_ts, end_ts, sc as i32], |row| row.get(0)
-                ),
-                (None, Some(m)) => stmt.query_row(
-                    params![start_ts, end_ts, format!("%{m}%")], |row| row.get(0)
-                ),
-                (None, None) => stmt.query_row(
-                    params![start_ts, end_ts], |row| row.get(0)
-                ),
-            }.map_err(|e| format!("计数查询失败: {e}"))?;
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> = dynamic_params.iter().map(|p| p.as_ref()).collect();
+            let total: i64 = stmt.query_row(param_refs.as_slice(), |row| row.get(0))
+                .map_err(|e| format!("计数查询失败: {e}"))?;
             total as u64
         };
 
@@ -598,7 +656,7 @@ impl Database {
             "SELECT request_id, model, request_model, input_tokens, output_tokens,
                     cache_read_tokens, cache_creation_tokens,
                     input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
-                    latency_ms, first_token_ms, status_code, is_streaming, error_message, created_at
+                    latency_ms, first_token_ms, status_code, is_streaming, error_message, channel_id, created_at
             FROM proxy_request_logs
             WHERE {where_clause}
             ORDER BY created_at DESC
@@ -628,28 +686,30 @@ impl Database {
                 status_code: row.get::<_, i32>(14)? as u16,
                 is_streaming: row.get::<_, i32>(15)? != 0,
                 error_message: row.get(16)?,
-                created_at: row.get(17)?,
+                channel_id: row.get(17)?,
+                created_at: row.get(18)?,
             })
         };
 
-        let rows = match (status_code_filter, model_filter) {
-            (Some(sc), Some(m)) => stmt.query_map(
-                params![start_ts, end_ts, sc as i32, format!("%{m}%"), page_size, offset],
-                map_row,
-            ),
-            (Some(sc), None) => stmt.query_map(
-                params![start_ts, end_ts, sc as i32, page_size, offset],
-                map_row,
-            ),
-            (None, Some(m)) => stmt.query_map(
-                params![start_ts, end_ts, format!("%{m}%"), page_size, offset],
-                map_row,
-            ),
-            (None, None) => stmt.query_map(
-                params![start_ts, end_ts, page_size, offset],
-                map_row,
-            ),
-        }.map_err(|e| format!("日志查询失败: {e}"))?;
+        // 追加分页参数
+        let mut query_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        query_params.push(Box::new(start_ts));
+        query_params.push(Box::new(end_ts));
+        if let Some(sc) = status_code_filter {
+            query_params.push(Box::new(sc as i32));
+        }
+        if let Some(ref m) = model_filter {
+            query_params.push(Box::new(format!("%{m}%")));
+        }
+        if let Some(ch) = channel_id_filter {
+            query_params.push(Box::new(ch.to_string()));
+        }
+        query_params.push(Box::new(page_size));
+        query_params.push(Box::new(offset));
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = query_params.iter().map(|p| p.as_ref()).collect();
+        let rows = stmt.query_map(param_refs.as_slice(), map_row)
+            .map_err(|e| format!("日志查询失败: {e}"))?;
 
         let mut logs = Vec::new();
         for row in rows {

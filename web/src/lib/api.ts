@@ -66,11 +66,17 @@ export const api = {
       body: JSON.stringify({ secret }),
     }).then(r => r.json() as Promise<{ valid: boolean; auth_required: boolean }>),
 
-  getUsageSummary: (days: number) =>
-    fetchJson<UsageSummary>(`${BASE}/api/stats/summary?days=${days}`),
+  getUsageSummary: (days: number, channelId?: string) => {
+    const sp = new URLSearchParams({ days: String(days) });
+    if (channelId) sp.set('channel_id', channelId);
+    return fetchJson<UsageSummary>(`${BASE}/api/stats/summary?${sp}`);
+  },
 
-  getUsageTrends: (days: number) =>
-    fetchJson<DailyStats[]>(`${BASE}/api/stats/trends?days=${days}`),
+  getUsageTrends: (days: number, channelId?: string) => {
+    const sp = new URLSearchParams({ days: String(days) });
+    if (channelId) sp.set('channel_id', channelId);
+    return fetchJson<DailyStats[]>(`${BASE}/api/stats/trends?${sp}`);
+  },
 
   getModelStats: (days: number) =>
     fetchJson<ModelStats[]>(`${BASE}/api/stats/models?days=${days}`),
@@ -81,6 +87,7 @@ export const api = {
     status_code?: number;
     model?: string;
     days?: number;
+    channel_id?: string;
   }) => {
     const sp = new URLSearchParams();
     if (params.page) sp.set('page', String(params.page));
@@ -88,6 +95,7 @@ export const api = {
     if (params.status_code) sp.set('status_code', String(params.status_code));
     if (params.model) sp.set('model', params.model);
     if (params.days) sp.set('days', String(params.days));
+    if (params.channel_id) sp.set('channel_id', params.channel_id);
     return fetchJson<PaginatedLogs>(`${BASE}/api/stats/logs?${sp}`);
   },
 

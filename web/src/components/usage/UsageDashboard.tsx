@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { UsageSummaryCards } from './UsageSummaryCards';
 import { UsageTrendChart } from './UsageTrendChart';
-import { useUsageSummary, useUsageTrends } from '@/hooks/use-usage';
+import { useUsageSummary, useUsageTrends, useEndpoints } from '@/hooks/use-usage';
 import type { TimeRange } from '@/types/usage';
 import { Timer, RefreshCw } from 'lucide-react';
 
@@ -17,11 +18,14 @@ const REFRESH_OPTIONS = [
 export function UsageDashboard() {
   const [timeRange, setTimeRange] = useState<TimeRange>('1d');
   const [refreshIdx, setRefreshIdx] = useState(3);
+  const [channelFilter, setChannelFilter] = useState<string>('all');
   const refreshMs = REFRESH_OPTIONS[refreshIdx].value;
   const days = timeRange === '1d' ? 1 : 7;
+  const channelId = channelFilter !== 'all' ? channelFilter : undefined;
 
-  const summary = useUsageSummary(days, refreshMs);
-  const trends = useUsageTrends(days, refreshMs);
+  const summary = useUsageSummary(days, refreshMs, channelId);
+  const trends = useUsageTrends(days, refreshMs, channelId);
+  const { data: endpoints } = useEndpoints();
 
   function cycleRefresh() {
     setRefreshIdx((i) => (i + 1) % REFRESH_OPTIONS.length);
@@ -39,7 +43,20 @@ export function UsageDashboard() {
             查看 AI 模型的使用情况和成本统计
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {endpoints.length > 0 && (
+            <Select value={channelFilter} onValueChange={setChannelFilter}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="全部渠道" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部渠道</SelectItem>
+                {endpoints.map(ep => (
+                  <SelectItem key={ep.id} value={ep.id}>{ep.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <button
             onClick={cycleRefresh}
             className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-border bg-background text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"

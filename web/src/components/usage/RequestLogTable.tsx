@@ -5,28 +5,31 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { useRequestLogs } from '@/hooks/use-usage';
-import type { TimeRange } from '@/types/usage';
+import type { TimeRange, Endpoint } from '@/types/usage';
 import { fmtInt, fmtUsd, fmtTimestamp, fmtDuration } from './format';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface Props {
   timeRange: TimeRange;
   refreshMs: number;
+  endpoints: Endpoint[];
 }
 
 const PAGE_SIZE = 20;
 
-export function RequestLogTable({ timeRange, refreshMs }: Props) {
+export function RequestLogTable({ timeRange, refreshMs, endpoints }: Props) {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [modelFilter, setModelFilter] = useState('');
+  const [channelFilter, setChannelFilter] = useState<string>('all');
 
   const days = timeRange === '1d' ? 1 : 7;
   const statusCode = statusFilter !== 'all' ? Number(statusFilter) : undefined;
   const model = modelFilter.trim() || undefined;
+  const channelId = channelFilter !== 'all' ? channelFilter : undefined;
 
   const { data, loading } = useRequestLogs(
-    { page, pageSize: PAGE_SIZE, statusCode, model, days },
+    { page, pageSize: PAGE_SIZE, statusCode, model, days, channelId },
     refreshMs,
   );
 
@@ -36,6 +39,11 @@ export function RequestLogTable({ timeRange, refreshMs }: Props) {
     if (ms <= 5000) return 'text-emerald-500';
     if (ms <= 120000) return 'text-amber-500';
     return 'text-red-500';
+  }
+
+  function getChannelName(id: string): string {
+    if (!id) return '-';
+    return endpoints.find(e => e.id === id)?.name || id.slice(0, 8);
   }
 
   return (
@@ -54,6 +62,19 @@ export function RequestLogTable({ timeRange, refreshMs }: Props) {
             <SelectItem value="500">500</SelectItem>
           </SelectContent>
         </Select>
+        {endpoints.length > 0 && (
+          <Select value={channelFilter} onValueChange={(v) => { setChannelFilter(v); setPage(1); }}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="全部渠道" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部渠道</SelectItem>
+              {endpoints.map(ep => (
+                <SelectItem key={ep.id} value={ep.id}>{ep.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <Input
           placeholder="筛选模型..."
           value={modelFilter}
@@ -68,6 +89,7 @@ export function RequestLogTable({ timeRange, refreshMs }: Props) {
           <TableHeader>
             <TableRow>
               <TableHead>时间</TableHead>
+              <TableHead>渠道</TableHead>
               <TableHead>模型</TableHead>
               <TableHead className="text-right">Input</TableHead>
               <TableHead className="text-right">Output</TableHead>
@@ -81,7 +103,7 @@ export function RequestLogTable({ timeRange, refreshMs }: Props) {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
                   <div className="flex items-center justify-center gap-2">
                     <div className="spinner !w-5 !h-5 !border-2" />
                     加载中...
@@ -90,12 +112,17 @@ export function RequestLogTable({ timeRange, refreshMs }: Props) {
               </TableRow>
             ) : !data?.data.length ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">暂无数据</TableCell>
+                <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">暂无数据</TableCell>
               </TableRow>
             ) : (
               data.data.map((log) => (
                 <TableRow key={log.request_id}>
                   <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{fmtTimestamp(log.created_at)}</TableCell>
+                  <TableCell className="text-xs">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium truncate max-w-[120px]">
+                      {getChannelName(log.channel_id)}
+                    </span>
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{log.model}</TableCell>
                   <TableCell className="text-right tabular-nums text-sm">{fmtInt(log.input_tokens)}</TableCell>
                   <TableCell className="text-right tabular-nums text-sm">{fmtInt(log.output_tokens)}</TableCell>

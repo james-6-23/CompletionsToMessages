@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RequestLogTable } from './RequestLogTable';
+import { useEndpoints } from '@/hooks/use-usage';
 import type { TimeRange } from '@/types/usage';
 import { Timer, RefreshCw } from 'lucide-react';
 
@@ -16,6 +17,7 @@ export function RequestLogPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>('1d');
   const [refreshIdx, setRefreshIdx] = useState(3);
   const refreshMs = REFRESH_OPTIONS[refreshIdx].value;
+  const { data: endpoints } = useEndpoints();
 
   function cycleRefresh() {
     setRefreshIdx((i) => (i + 1) % REFRESH_OPTIONS.length);
@@ -49,7 +51,7 @@ export function RequestLogPage() {
         </div>
       </div>
 
-      <RequestLogTable timeRange={timeRange} refreshMs={refreshMs} />
+      <RequestLogTable timeRange={timeRange} refreshMs={refreshMs} endpoints={endpoints} />
     </div>
   );
 }

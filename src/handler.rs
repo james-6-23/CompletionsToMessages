@@ -75,7 +75,7 @@ pub async fn handle_messages(
 
     // 5. 选取 API Key（基于 access token 绑定的渠道轮询）
     let token_for_pool = matched_token.as_deref().unwrap_or("");
-    let (key_id, api_key, upstream_base) = state.key_pool.next_key(token_for_pool).await?;
+    let (key_id, api_key, upstream_base, channel_id) = state.key_pool.next_key(token_for_pool).await?;
 
     // 6. 构建上游请求
     let upstream_url = format!(
@@ -146,6 +146,7 @@ pub async fn handle_messages(
         let err_req_model = if request_model.is_empty() { None } else { Some(request_model.clone()) };
         let err_msg = body_text.as_deref().map(|s| s.chars().take(500).collect::<String>());
         let rid = request_id.clone();
+        let err_channel_id = channel_id.clone();
         tokio::spawn(async move {
             usage::record_request(
                 db,
@@ -163,6 +164,7 @@ pub async fn handle_messages(
                 status_code,
                 is_stream,
                 err_msg,
+                err_channel_id,
             )
             .await;
         });
@@ -199,6 +201,7 @@ pub async fn handle_messages(
         }
 
         // 延迟记录 usage：等流传输完毕后从 collector 读取实际值
+        let stream_channel_id = channel_id.clone();
         tokio::spawn(async move {
             // 等待一段时间让流传输完成（collector 在流最后的 chunk 中被更新）
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -220,6 +223,7 @@ pub async fn handle_messages(
                 200,
                 true,
                 None,
+                stream_channel_id,
             )
             .await;
         });
@@ -246,6 +250,7 @@ pub async fn handle_messages(
             actual_model,
             if request_model.is_empty() { None } else { Some(request_model) },
             start_time,
+            channel_id,
         )
         .await
     }
@@ -285,6 +290,7 @@ async fn handle_non_streaming_response(
     model: String,
     request_model: Option<String>,
     start_time: std::time::Instant,
+    channel_id: String,
 ) -> Result<axum::response::Response, ProxyError> {
     let body_bytes = resp.bytes().await.map_err(|e| {
         log::error!("[cc-proxy] 读取上游响应失败: {e}");
@@ -313,7 +319,7 @@ async fn handle_non_streaming_response(
         let m = model;
         let rm = request_model;
         tokio::spawn(async move {
-            usage::record_request(db, rid, m, rm, u, latency_ms, None, 200, false, None).await;
+            usage::record_request(db, rid, m, rm, u, latency_ms, None, 200, false, None, channel_id).await;
         });
     }
 
