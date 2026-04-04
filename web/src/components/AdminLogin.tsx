@@ -54,7 +54,7 @@ export function AdminLogin({ onSuccess, theme, onThemeToggle }: LoginProps) {
             <Shield className="h-8 w-8 text-primary" />
           </div>
           <h1 className="text-[28px] font-bold bg-gradient-to-br from-primary to-blue-400 bg-clip-text text-transparent">
-            CC-Proxy
+            completions-to-messages
           </h1>
           <p className="text-sm text-muted-foreground mt-1">请输入管理密钥以继续</p>
         </div>

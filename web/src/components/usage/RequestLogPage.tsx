@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { UsageSummaryCards } from './UsageSummaryCards';
-import { UsageTrendChart } from './UsageTrendChart';
-import { useUsageSummary, useUsageTrends } from '@/hooks/use-usage';
+import { RequestLogTable } from './RequestLogTable';
 import type { TimeRange } from '@/types/usage';
 import { Timer, RefreshCw } from 'lucide-react';
 
@@ -14,29 +12,24 @@ const REFRESH_OPTIONS = [
   { label: '60s', value: 60000 },
 ];
 
-export function UsageDashboard() {
+export function RequestLogPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>('1d');
   const [refreshIdx, setRefreshIdx] = useState(3);
   const refreshMs = REFRESH_OPTIONS[refreshIdx].value;
-  const days = timeRange === '1d' ? 1 : 7;
-
-  const summary = useUsageSummary(days, refreshMs);
-  const trends = useUsageTrends(days, refreshMs);
 
   function cycleRefresh() {
     setRefreshIdx((i) => (i + 1) % REFRESH_OPTIONS.length);
   }
 
   return (
-    <div className="space-y-8">
-      {/* 页头 */}
+    <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-[clamp(28px,4vw,38px)] font-semibold leading-[1.08] tracking-tight">
-            使用总览
+            请求日志
           </h2>
-          <p className="mt-2 text-muted-foreground text-[15px] leading-relaxed max-w-[500px]">
-            查看 AI 模型的使用情况和成本统计
+          <p className="mt-2 text-muted-foreground text-[15px] leading-relaxed">
+            查看所有 API 请求的详细记录
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -56,11 +49,7 @@ export function UsageDashboard() {
         </div>
       </div>
 
-      {/* 汇总卡片 */}
-      <UsageSummaryCards data={summary.data} loading={summary.loading} />
-
-      {/* 趋势图 */}
-      <UsageTrendChart data={trends.data} loading={trends.loading} timeRange={timeRange} />
+      <RequestLogTable timeRange={timeRange} refreshMs={refreshMs} />
     </div>
   );
 }
