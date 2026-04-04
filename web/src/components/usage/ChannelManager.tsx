@@ -620,11 +620,27 @@ function ChannelDetailPanel({
     });
   }
 
-  /* 统计数据 */
+  /* 统计数据 — 从 API 按渠道拉取 */
   const totalKeys = keys.length;
-  const req24h = keys.reduce((s, k) => s + k.total_requests, 0);
-  const failedTotal = keys.reduce((s, k) => s + k.failed_requests, 0);
   const activeCount = keys.filter(k => k.is_active).length;
+  const failedTotal = keys.reduce((s, k) => s + k.failed_requests, 0);
+
+  const [stats24h, setStats24h] = useState(0);
+  const [stats7d, setStats7d] = useState(0);
+  const [stats30d, setStats30d] = useState(0);
+
+  useEffect(() => {
+    const cid = endpoint.id;
+    Promise.all([
+      api.getUsageSummary(24, cid),
+      api.getUsageSummary(168, cid),
+      api.getUsageSummary(720, cid),
+    ]).then(([h24, d7, d30]) => {
+      setStats24h(h24.total_requests);
+      setStats7d(d7.total_requests);
+      setStats30d(d30.total_requests);
+    }).catch(() => {});
+  }, [endpoint.id, keys.length]);
 
   /* 过滤密钥 */
   const filteredKeys = keys.filter(k => {
@@ -738,15 +754,15 @@ function ChannelDetailPanel({
       <div className="grid grid-cols-4 gap-0 border-b border-border/50">
         {[
           { label: '密钥数量', value: totalKeys, sub: activeCount, subColor: 'text-emerald-500' },
-          { label: '24小时请求', value: 0, sub: 0, subColor: 'text-red-400' },
-          { label: '7天请求', value: req24h, sub: failedTotal, subColor: 'text-red-400' },
-          { label: '30天请求', value: 0, sub: 0, subColor: 'text-red-400' },
+          { label: '24小时请求', value: stats24h, sub: null, subColor: '' },
+          { label: '7天请求', value: stats7d, sub: failedTotal, subColor: 'text-red-400' },
+          { label: '30天请求', value: stats30d, sub: null, subColor: '' },
         ].map((stat, i) => (
           <div key={i} className={`px-6 py-4 ${i < 3 ? 'border-r border-border/50' : ''}`}>
             <p className="text-xs text-muted-foreground mb-1">{stat.label}</p>
             <div className="flex items-baseline gap-2">
-              <span className="text-xl font-bold text-foreground">{stat.value}</span>
-              <span className={`text-xl font-bold ${stat.subColor}`}>{stat.sub}</span>
+              <span className="text-xl font-bold text-foreground">{stat.value.toLocaleString()}</span>
+              {stat.sub != null && <span className={`text-xl font-bold ${stat.subColor}`}>{stat.sub}</span>}
             </div>
           </div>
         ))}
@@ -765,7 +781,7 @@ function ChannelDetailPanel({
           <div className="px-6 pb-4 space-y-3 text-sm text-muted-foreground">
             <div className="flex gap-8">
               <span>活跃密钥: <strong className="text-emerald-500">{activeCount}</strong> / {totalKeys}</span>
-              <span>总请求: <strong className="text-foreground">{req24h.toLocaleString()}</strong></span>
+              <span>总请求: <strong className="text-foreground">{stats7d.toLocaleString()}</strong></span>
               <span>总失败: <strong className="text-red-500">{failedTotal}</strong></span>
             </div>
 
