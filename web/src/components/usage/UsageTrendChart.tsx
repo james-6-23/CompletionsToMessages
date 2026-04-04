@@ -2,7 +2,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import type { DailyStats, TimeRange } from '@/types/usage';
-import { fmtTokenK, fmtUsd, parseFiniteNumber } from './format';
+import { fmtTokenK, parseFiniteNumber } from './format';
 
 interface Props {
   data: DailyStats[];
@@ -59,7 +59,6 @@ const SERIES_LABELS: Record<string, string> = {
   output: '输出',
   cacheCreate: '缓存创建',
   cacheRead: '缓存命中',
-  cost: '成本',
 };
 
 function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
@@ -72,7 +71,7 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
           <span className="inline-block h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
           <span className="text-muted-foreground">{SERIES_LABELS[entry.dataKey] ?? entry.name}:</span>
           <span className="font-medium text-foreground">
-            {entry.dataKey === 'cost' ? fmtUsd(entry.value, 4) : fmtTokenK(entry.value)}
+            {fmtTokenK(entry.value)}
           </span>
         </div>
       ))}
@@ -128,14 +127,6 @@ export function UsageTrendChart({ data, loading, timeRange }: Props) {
               axisLine={false}
               tickLine={false}
             />
-            <YAxis
-              yAxisId="cost"
-              orientation="right"
-              tickFormatter={(v: number) => `$${v.toFixed(2)}`}
-              tick={{ fontSize: 12, fill: 'hsl(var(--color-muted-foreground))' }}
-              axisLine={false}
-              tickLine={false}
-            />
             <Tooltip content={<CustomTooltip />} />
             <Legend
               verticalAlign="bottom"
@@ -147,7 +138,6 @@ export function UsageTrendChart({ data, loading, timeRange }: Props) {
             <Area yAxisId="tokens" type="monotone" dataKey="output" stroke="#22c55e" fill="url(#gOutput)" strokeWidth={2} name="输出" />
             <Area yAxisId="tokens" type="monotone" dataKey="cacheCreate" stroke="#f97316" fill="url(#gCacheCreate)" strokeWidth={2} name="缓存创建" />
             <Area yAxisId="tokens" type="monotone" dataKey="cacheRead" stroke="#a855f7" fill="url(#gCacheRead)" strokeWidth={2} name="缓存命中" />
-            <Area yAxisId="cost" type="monotone" dataKey="cost" stroke="#f43f5e" fill="none" strokeWidth={2} strokeDasharray="5 5" name="成本" />
           </AreaChart>
         </ResponsiveContainer>
       )}
