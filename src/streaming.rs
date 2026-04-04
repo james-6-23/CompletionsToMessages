@@ -152,7 +152,30 @@ pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
 
         tokio::pin!(stream);
 
-        while let Some(chunk) = stream.next().await {
+        // 流式空闲超时：90 秒内无数据则中断
+        let idle_timeout = std::time::Duration::from_secs(90);
+
+        loop {
+            let chunk = match tokio::time::timeout(idle_timeout, stream.next()).await {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) => break, // 流正常结束
+                Err(_) => {
+                    // 空闲超时
+                    log::warn!("[cc-proxy] 流式响应空闲超时 (90s)");
+                    let error_event = json!({
+                        "type": "error",
+                        "error": {"type": "idle_timeout", "message": "Stream idle timeout (90s)"}
+                    });
+                    let sse_data = format!("event: error\ndata: {}\n\n",
+                        serde_json::to_string(&error_event).unwrap_or_default());
+                    yield Ok(Bytes::from(sse_data));
+                    // 发送 done 信号，避免 usage 记录任务永远等待
+                    if let Some(tx) = done_tx.take() {
+                        let _ = tx.send(());
+                    }
+                    break;
+                }
+            };
             match chunk {
                 Ok(bytes) => {
                     let text = String::from_utf8_lossy(&bytes);

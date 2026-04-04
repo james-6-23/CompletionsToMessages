@@ -38,3 +38,4 @@ clap = { version = "4", features = ["derive"] }
 rusqlite = { version = "0.34", features = ["bundled"] }
 rust_decimal = { version = "1.37", features = ["serde", "serde-with-str"] }
 uuid = { version = "1", features = ["v4"] }
+regex = "1"

@@ -29,6 +29,17 @@ fn is_retryable_status(status: u16) -> bool {
     status >= 500 || status == 429 || status == 529
 }
 
+/// 解析上下文窗口溢出错误: "input length and `max_tokens` exceed context limit: X + Y > Z"
+/// 返回 (input_tokens, max_tokens, context_limit)
+fn parse_context_overflow(body: &str) -> Option<(u64, u64, u64)> {
+    let re = regex::Regex::new(r"(\d+)\s*\+\s*(\d+)\s*>\s*(\d+)").ok()?;
+    let caps = re.captures(body)?;
+    let input = caps.get(1)?.as_str().parse::<u64>().ok()?;
+    let max = caps.get(2)?.as_str().parse::<u64>().ok()?;
+    let limit = caps.get(3)?.as_str().parse::<u64>().ok()?;
+    Some((input, max, limit))
+}
+
 /// 从上游响应头中提取需要透传给客户端的关键头部
 fn extract_upstream_headers(resp_headers: &reqwest::header::HeaderMap) -> axum::http::HeaderMap {
     let mut headers = axum::http::HeaderMap::new();
@@ -105,7 +116,7 @@ pub async fn handle_messages(
     );
 
     // 4. Anthropic → OpenAI 格式转换
-    let openai_body = transform::anthropic_to_openai(body, None)?;
+    let mut openai_body = transform::anthropic_to_openai(body, None)?;
 
     // 5. 发送上游请求（含重试逻辑）
     //
@@ -116,16 +127,29 @@ pub async fn handle_messages(
     let backoff_base_ms: u64 = 500;
 
     let mut last_error: Option<ProxyError> = None;
+    let mut last_retry_after_ms: Option<u64> = None;
     let mut last_key_id: Option<String> = None;
     let mut last_channel_id: String = String::new();
     let mut resp_opt: Option<reqwest::Response> = None;
     let mut upstream_headers_for_resp = axum::http::HeaderMap::new();
+    // 上下文溢出自动修正标记（额外重试一次，独立于常规重试循环）
+    let mut context_overflow_retried = false;
 
     let token_for_pool = matched_token.as_deref().unwrap_or("");
 
-    for attempt in 0..max_attempts {
+    let mut attempt: usize = 0;
+    loop {
+        if attempt >= max_attempts {
+            break;
+        }
+
         if attempt > 0 {
-            let delay_ms = backoff_base_ms * (1 << (attempt - 1)); // 500ms, 1000ms
+            // 优先使用上游 retry-after 头指定的延迟（上限 30s），否则指数退避
+            let delay_ms = if let Some(retry_after) = last_retry_after_ms.take() {
+                retry_after.min(30_000)
+            } else {
+                backoff_base_ms * (1 << (attempt - 1)) // 500ms, 1000ms
+            };
             log::info!(
                 "[cc-proxy] 重试第 {} 次 (延迟 {}ms), rid={}",
                 attempt,
@@ -182,6 +206,7 @@ pub async fn handle_messages(
                 // 网络错误可重试
                 if attempt + 1 < max_attempts {
                     last_error = Some(err);
+                    attempt += 1;
                     continue;
                 }
                 return Err(err);
@@ -206,8 +231,16 @@ pub async fn handle_messages(
                         tokio::spawn(async move { pool.report_access_token(&t, false).await });
                     }
 
-                    // 检查是否可重试
+                    // 检查是否可重试（常规重试逻辑）
                     if is_retryable_status(status_code) && attempt + 1 < max_attempts {
+                        // 解析 retry-after 头，用于下次重试的延迟
+                        let retry_after_ms = extracted_headers
+                            .get("retry-after")
+                            .and_then(|v| v.to_str().ok())
+                            .and_then(|s| s.parse::<u64>().ok())
+                            .map(|secs| secs * 1000);
+                        last_retry_after_ms = retry_after_ms;
+
                         let body_text = resp.text().await.ok();
                         log::warn!(
                             "[cc-proxy] 上游可重试错误 (attempt {}): status={}, body={:?}",
@@ -220,11 +253,37 @@ pub async fn handle_messages(
                             body: body_text,
                             upstream_headers: Some(UpstreamHeaders(extracted_headers)),
                         });
+                        attempt += 1;
                         continue;
                     }
 
-                    // 不可重试或已耗尽重试次数：直接返回错误
+                    // 不可重试或已耗尽重试次数
                     let body_text = resp.text().await.ok();
+
+                    // 上下文窗口溢出自动修正 max_tokens（额外重试一次，独立于常规重试）
+                    if status_code == 400 && !context_overflow_retried {
+                        if let Some(body_str) = body_text.as_deref() {
+                            if let Some((input_tokens, _max_tokens, context_limit)) = parse_context_overflow(body_str) {
+                                let new_max = context_limit.saturating_sub(input_tokens).saturating_sub(1000);
+                                if new_max >= 1000 {
+                                    context_overflow_retried = true;
+                                    log::warn!(
+                                        "[cc-proxy] 上下文溢出自动修正: input={}, context_limit={}, 新max_tokens={}, rid={}",
+                                        input_tokens, context_limit, new_max, request_id
+                                    );
+                                    // 修正 openai_body 中的 max_tokens / max_completion_tokens
+                                    if openai_body.get("max_completion_tokens").is_some() {
+                                        openai_body["max_completion_tokens"] = json!(new_max);
+                                    } else {
+                                        openai_body["max_tokens"] = json!(new_max);
+                                    }
+                                    // 不增加 attempt 计数，这是额外重试机会
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
                     let latency_ms = start_time.elapsed().as_millis() as u64;
 
                     log::warn!(
