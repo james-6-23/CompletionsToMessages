@@ -167,13 +167,18 @@ pub async fn handle_messages(
         }
 
         // 每次尝试都选取新密钥（按请求模型筛选渠道）
-        let (key_id, api_key, upstream_base, channel_id, proxy_url) = state
+        let (key_id, api_key, upstream_base, channel_id, proxy_url, mapped_model) = state
             .key_pool
             .next_key(token_for_pool, Some(&actual_model))
             .await?;
 
         last_key_id = key_id.clone();
         last_channel_id = channel_id.clone();
+
+        // 应用模型映射：将请求中的模型名替换为映射后的模型名
+        if let Some(ref mapped) = mapped_model {
+            openai_body["model"] = json!(mapped);
+        }
 
         let upstream_url = format!(
             "{}/v1/chat/completions",
@@ -584,7 +589,7 @@ pub async fn handle_models(
     let token_for_pool = matched_token.as_deref().unwrap_or("");
 
     // 选取一个可用 key 获取上游 URL（模型列表请求不按模型筛选）
-    let (_key_id, api_key, upstream_base, _channel_id, _proxy_url) =
+    let (_key_id, api_key, upstream_base, _channel_id, _proxy_url, _mapped) =
         state.key_pool.next_key(token_for_pool, None).await?;
 
     let models_url = format!("{}/v1/models", upstream_base.trim_end_matches('/'));

@@ -148,6 +148,8 @@ pub struct EndpointRow {
     pub is_active: bool,
     pub key_count: u64,
     pub models: Vec<String>,
+    /// 模型映射：请求模型名 → 实际转发模型名
+    pub model_mapping: std::collections::HashMap<String, String>,
     pub created_at: i64,
 }
 
@@ -175,6 +177,8 @@ pub struct ActiveKey {
     pub proxy_url: String,
     /// 端点支持的模型列表（空 = 不限制，支持所有模型）
     pub endpoint_models: Vec<String>,
+    /// 模型映射：请求模型名 → 实际转发模型名
+    pub model_mapping: std::collections::HashMap<String, String>,
 }
 
 /// 访问密钥行（对外展示，token 脱敏）
@@ -381,6 +385,29 @@ impl Database {
                 )
                 .map_err(|e| format!("迁移 upstream_endpoints 添加 proxy_url 列失败: {e}"))?;
                 log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 proxy_url 列");
+            }
+        }
+
+        // 迁移：为 upstream_endpoints 添加 model_mapping 列（JSON 对象，模型名映射）
+        {
+            let has_col: bool = conn
+                .prepare("PRAGMA table_info(upstream_endpoints)")
+                .and_then(|mut stmt| {
+                    let names: Vec<String> = stmt
+                        .query_map([], |row| row.get::<_, String>(1))
+                        .unwrap()
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    Ok(names.contains(&"model_mapping".to_string()))
+                })
+                .unwrap_or(false);
+
+            if !has_col {
+                conn.execute_batch(
+                    "ALTER TABLE upstream_endpoints ADD COLUMN model_mapping TEXT NOT NULL DEFAULT '{}';",
+                )
+                .map_err(|e| format!("迁移 upstream_endpoints 添加 model_mapping 列失败: {e}"))?;
+                log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 model_mapping 列");
             }
         }
 
@@ -1014,7 +1041,7 @@ impl Database {
             .prepare(
                 "SELECT e.id, e.name, e.base_url, e.is_active, e.created_at,
                     (SELECT COUNT(*) FROM api_keys k WHERE k.endpoint_id = e.id) as key_count,
-                    e.models, e.website_url, e.logo_url, e.proxy_url
+                    e.models, e.website_url, e.logo_url, e.proxy_url, e.model_mapping
             FROM upstream_endpoints e
             ORDER BY e.created_at ASC",
             )
@@ -1025,6 +1052,10 @@ impl Database {
                 let models_json: String =
                     row.get::<_, String>(6).unwrap_or_else(|_| "[]".to_string());
                 let models: Vec<String> = serde_json::from_str(&models_json).unwrap_or_default();
+                let mapping_json: String =
+                    row.get::<_, String>(10).unwrap_or_else(|_| "{}".to_string());
+                let model_mapping: std::collections::HashMap<String, String> =
+                    serde_json::from_str(&mapping_json).unwrap_or_default();
                 Ok(EndpointRow {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -1032,6 +1063,7 @@ impl Database {
                     is_active: row.get::<_, i32>(3)? != 0,
                     key_count: row.get::<_, i64>(5)? as u64,
                     models,
+                    model_mapping,
                     created_at: row.get(4)?,
                     website_url: row.get::<_, String>(7).unwrap_or_default(),
                     logo_url: row.get::<_, String>(8).unwrap_or_default(),
@@ -1075,6 +1107,7 @@ impl Database {
             is_active: true,
             key_count: 0,
             models: vec![],
+            model_mapping: std::collections::HashMap::new(),
             created_at,
         })
     }
@@ -1143,6 +1176,23 @@ impl Database {
             params![models_json, id],
         )
         .map_err(|e| format!("更新端点模型列表失败: {e}"))?;
+        Ok(())
+    }
+
+    /// 更新端点模型映射
+    pub fn update_endpoint_model_mapping(
+        &self,
+        id: &str,
+        mapping: &std::collections::HashMap<String, String>,
+    ) -> Result<(), String> {
+        let conn = self.writer.lock();
+        let json = serde_json::to_string(mapping)
+            .map_err(|e| format!("序列化模型映射失败: {e}"))?;
+        conn.execute(
+            "UPDATE upstream_endpoints SET model_mapping = ?1 WHERE id = ?2",
+            params![json, id],
+        )
+        .map_err(|e| format!("更新端点模型映射失败: {e}"))?;
         Ok(())
     }
 
@@ -1396,7 +1446,7 @@ impl Database {
         let conn = self.reader.get().lock();
         let mut stmt = conn
             .prepare(
-                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url
+                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url, e.model_mapping
             FROM api_keys k
             INNER JOIN upstream_endpoints e ON k.endpoint_id = e.id
             WHERE k.is_active = 1 AND e.is_active = 1
@@ -1410,6 +1460,10 @@ impl Database {
                     row.get::<_, String>(4).unwrap_or_else(|_| "[]".to_string());
                 let endpoint_models: Vec<String> =
                     serde_json::from_str(&models_json).unwrap_or_default();
+                let mapping_json: String =
+                    row.get::<_, String>(6).unwrap_or_else(|_| "{}".to_string());
+                let model_mapping: std::collections::HashMap<String, String> =
+                    serde_json::from_str(&mapping_json).unwrap_or_default();
                 Ok(ActiveKey {
                     id: row.get(0)?,
                     api_key: row.get(1)?,
@@ -1417,6 +1471,7 @@ impl Database {
                     base_url: row.get(3)?,
                     proxy_url: row.get::<_, String>(5).unwrap_or_default(),
                     endpoint_models,
+                    model_mapping,
                 })
             })
             .map_err(|e| format!("查询活跃密钥失败: {e}"))?;
@@ -1698,7 +1753,7 @@ impl Database {
         let conn = self.reader.get().lock();
         let mut stmt = conn
             .prepare(
-                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url
+                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url, e.model_mapping
             FROM api_keys k
             INNER JOIN upstream_endpoints e ON k.endpoint_id = e.id
             INNER JOIN access_token_channels atc ON atc.channel_id = e.id
@@ -1714,6 +1769,10 @@ impl Database {
                     row.get::<_, String>(4).unwrap_or_else(|_| "[]".to_string());
                 let endpoint_models: Vec<String> =
                     serde_json::from_str(&models_json).unwrap_or_default();
+                let mapping_json: String =
+                    row.get::<_, String>(6).unwrap_or_else(|_| "{}".to_string());
+                let model_mapping: std::collections::HashMap<String, String> =
+                    serde_json::from_str(&mapping_json).unwrap_or_default();
                 Ok(ActiveKey {
                     id: row.get(0)?,
                     api_key: row.get(1)?,
@@ -1721,6 +1780,7 @@ impl Database {
                     base_url: row.get(3)?,
                     proxy_url: row.get::<_, String>(5).unwrap_or_default(),
                     endpoint_models,
+                    model_mapping,
                 })
             })
             .map_err(|e| format!("查询 token 关联活跃密钥失败: {e}"))?;

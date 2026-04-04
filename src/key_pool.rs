@@ -64,14 +64,15 @@ impl KeyPool {
 
     /// 轮询选取下一个可用密钥（基于入站 token 过滤渠道，可按模型筛选）
     ///
-    /// 返回 `(key_id, api_key_value, upstream_base_url, endpoint_id)`：
+    /// 返回 `(key_id, api_key_value, upstream_base_url, endpoint_id, proxy_url, mapped_model)`：
     /// - key_id 为 Some 时表示来自数据库，None 时表示来自配置 fallback
     /// - model 不为 None 时，优先选择明确支持该模型的端点密钥
+    /// - mapped_model 不为 None 时表示需要将请求模型替换为映射后的模型
     pub async fn next_key(
         &self,
         inbound_token: &str,
         model: Option<&str>,
-    ) -> Result<(Option<String>, String, String, String, String), ProxyError> {
+    ) -> Result<(Option<String>, String, String, String, String, Option<String>), ProxyError> {
         let db = self.db.clone();
         let token = inbound_token.to_string();
         let keys = tokio::task::spawn_blocking(move || db.get_active_keys_for_token(&token))
@@ -84,7 +85,7 @@ impl KeyPool {
             if let Some(ref upstream) = self.config.upstream {
                 if let Some(ref key) = upstream.api_key {
                     if !key.is_empty() && !upstream.base_url.is_empty() {
-                        return Ok((None, key.clone(), upstream.base_url.clone(), String::new(), String::new()));
+                        return Ok((None, key.clone(), upstream.base_url.clone(), String::new(), String::new(), None));
                     }
                 }
             }
@@ -99,13 +100,15 @@ impl KeyPool {
             .filter(|k| self.circuit_breaker.is_available(&k.id))
             .collect();
 
-        // 按模型筛选：只保留端点模型列表为空（不限制）或包含请求模型的密钥（模糊匹配）
+        // 按模型筛选：只保留端点模型列表为空（不限制）或包含请求模型的密钥
+        // model_mapping 中的 key 也视为支持的模型
         let model_filtered: Vec<_> = if let Some(m) = model {
             available_keys
                 .iter()
                 .filter(|k| {
-                    k.endpoint_models.is_empty()
+                    k.endpoint_models.is_empty() && k.model_mapping.is_empty()
                         || k.endpoint_models.iter().any(|em| model_matches(m, em))
+                        || k.model_mapping.keys().any(|mk| model_matches(m, mk))
                 })
                 .copied()
                 .collect()
@@ -114,8 +117,8 @@ impl KeyPool {
         };
 
         let final_keys = if model_filtered.is_empty() && model.is_some() {
-            // 检查是否所有渠道都配置了模型列表（即都在做模型限制）
-            let all_have_models = available_keys.iter().all(|k| !k.endpoint_models.is_empty());
+            // 检查是否所有渠道都配置了模型列表或模型映射（即都在做模型限制）
+            let all_have_models = available_keys.iter().all(|k| !k.endpoint_models.is_empty() || !k.model_mapping.is_empty());
             if all_have_models {
                 // 所有渠道都配了模型列表但都不支持该模型，拒绝请求
                 return Err(ProxyError::Internal(format!(
@@ -126,7 +129,7 @@ impl KeyPool {
             // 存在未配置模型列表的渠道（不限制模型），回退到这些渠道
             let unrestricted: Vec<_> = available_keys
                 .iter()
-                .filter(|k| k.endpoint_models.is_empty())
+                .filter(|k| k.endpoint_models.is_empty() && k.model_mapping.is_empty())
                 .copied()
                 .collect();
             if unrestricted.is_empty() {
@@ -148,12 +151,29 @@ impl KeyPool {
             final_keys[idx % final_keys.len()]
         };
 
+        // 查找模型映射：如果选中的端点对请求模型有映射，返回映射后的模型名
+        let mapped_model = model.and_then(|m| {
+            // 精确匹配
+            if let Some(target) = selected.model_mapping.get(m) {
+                return Some(target.clone());
+            }
+            // 标准化匹配（处理 claude-haiku-4.5 vs claude-haiku-4-5 等情况）
+            let req_norm = normalize_model(m);
+            for (from, to) in &selected.model_mapping {
+                if normalize_model(from) == req_norm {
+                    return Some(to.clone());
+                }
+            }
+            None
+        });
+
         Ok((
             Some(selected.id.clone()),
             selected.api_key.clone(),
             selected.base_url.clone(),
             selected.endpoint_id.clone(),
             selected.proxy_url.clone(),
+            mapped_model,
         ))
     }
 

@@ -87,6 +87,7 @@ export interface Endpoint {
   is_active: boolean;
   key_count: number;
   models: string[];
+  model_mapping: Record<string, string>;
   created_at: number;
 }
 

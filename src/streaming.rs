@@ -556,6 +556,18 @@ pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
                                             yield Ok(Bytes::from(sse_data));
                                         }
                                     }
+
+                                    // 处理 usage-only chunk（choices 为空，OpenAI 标准格式）
+                                    if chunk.choices.is_empty() {
+                                        if let Some(u) = &chunk.usage {
+                                            if let Ok(mut c) = usage_collector.lock() {
+                                                c.input_tokens = u.prompt_tokens;
+                                                c.output_tokens = u.completion_tokens;
+                                                c.cache_read_tokens = extract_cache_read_tokens(u).unwrap_or(0);
+                                                c.cache_creation_tokens = u.cache_creation_input_tokens.unwrap_or(0);
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

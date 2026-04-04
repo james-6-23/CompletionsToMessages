@@ -289,6 +289,8 @@ pub struct UpdateEndpointRequest {
     pub logo_url: String,
     #[serde(default)]
     pub proxy_url: String,
+    #[serde(default)]
+    pub model_mapping: Option<std::collections::HashMap<String, String>>,
 }
 
 /// 更新端点状态请求体
@@ -341,11 +343,19 @@ pub async fn update_endpoint(
     let website = body.website_url.trim().to_string();
     let logo = body.logo_url.trim().to_string();
     let proxy = normalize_proxy_url(&body.proxy_url);
+    let mapping = body.model_mapping.clone();
     let db = Arc::clone(&state.db);
-    tokio::task::spawn_blocking(move || db.update_endpoint(&id, &name, &url, &website, &logo, &proxy))
-        .await
-        .map_err(|e| ProxyError::Internal(format!("更新端点失败: {e}")))?
-        .map_err(|e| ProxyError::Internal(e))?;
+    let ep_id = id.clone();
+    tokio::task::spawn_blocking(move || {
+        db.update_endpoint(&ep_id, &name, &url, &website, &logo, &proxy)?;
+        if let Some(m) = mapping {
+            db.update_endpoint_model_mapping(&ep_id, &m)?;
+        }
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| ProxyError::Internal(format!("更新端点失败: {e}")))?
+    .map_err(|e| ProxyError::Internal(e))?;
 
     Ok(Json(json!({"ok": true})))
 }

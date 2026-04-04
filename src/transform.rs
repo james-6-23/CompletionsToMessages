@@ -135,6 +135,10 @@ pub fn anthropic_to_openai(body: Value, cache_key: Option<&str>) -> Result<Value
     }
     if let Some(v) = body.get("stream") {
         result["stream"] = v.clone();
+        // 流式请求注入 stream_options，确保上游返回 usage 数据
+        if v.as_bool().unwrap_or(false) {
+            result["stream_options"] = json!({"include_usage": true});
+        }
     }
 
     // Map Anthropic thinking → OpenAI reasoning_effort

@@ -10,6 +10,7 @@ import {
   Plus, Trash2, Eye, EyeOff, Copy, FlaskConical, Check, X,
   Loader2, KeyRound, Globe, Pencil, Zap, Files, Wifi,
   Search, MoreHorizontal, MinusCircle, Download, RotateCcw,
+  ArrowRight,
 } from 'lucide-react';
 import { fmtTimestamp } from './format';
 
@@ -332,6 +333,17 @@ function ChannelDetailPanel({
   /* 详情展开 */
   const [showDetails, setShowDetails] = useState(false);
 
+  /* 模型映射 */
+  const [editMapping, setEditMapping] = useState<Record<string, string>>(() => endpoint.model_mapping || {});
+  const [newMapFrom, setNewMapFrom] = useState('');
+  const [newMapTo, setNewMapTo] = useState('');
+  const [savingMapping, setSavingMapping] = useState(false);
+
+  // endpoint 变化时同步映射
+  useEffect(() => {
+    setEditMapping(endpoint.model_mapping || {});
+  }, [endpoint.id, endpoint.model_mapping]);
+
   /* 当 endpoint 切换时，重置状态 */
   useEffect(() => {
     setShowEdit(false);
@@ -384,6 +396,26 @@ function ChannelDetailPanel({
       console.error('保存端点失败:', e);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSaveMapping(mapping: Record<string, string>) {
+    setSavingMapping(true);
+    try {
+      await api.updateEndpoint(endpoint.id, {
+        name: endpoint.name,
+        base_url: endpoint.base_url,
+        website_url: endpoint.website_url,
+        logo_url: endpoint.logo_url,
+        proxy_url: endpoint.proxy_url,
+        model_mapping: mapping,
+      });
+      toast('模型映射已保存', 'success');
+      onRefresh();
+    } catch {
+      toast('保存模型映射失败', 'error');
+    } finally {
+      setSavingMapping(false);
     }
   }
 
@@ -764,6 +796,79 @@ function ChannelDetailPanel({
               <button onClick={() => { setModels([]); fetchModels(); }} className="text-xs text-primary hover:underline">
                 {loadingModels ? '加载中...' : '刷新'}
               </button>
+            </div>
+
+            {/* 模型映射 */}
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium">模型映射:</span>
+                <span className="text-xs text-muted-foreground">（请求模型 → 实际转发模型）</span>
+              </div>
+
+              {/* 已有映射列表 */}
+              {Object.entries(editMapping).length > 0 ? (
+                <div className="space-y-1.5">
+                  {Object.entries(editMapping).map(([from, to]) => (
+                    <div key={from} className="flex items-center gap-2 group">
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50/60 dark:border-blue-500/20 dark:bg-blue-500/[0.06] text-xs font-semibold font-mono text-blue-700 dark:text-blue-300">
+                        {from}
+                      </span>
+                      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-lg border border-emerald-200 bg-emerald-50/60 dark:border-emerald-500/20 dark:bg-emerald-500/[0.06] text-xs font-semibold font-mono text-emerald-700 dark:text-emerald-300">
+                        {to}
+                      </span>
+                      <button
+                        className="p-1 rounded-md text-red-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                        title="删除映射"
+                        disabled={savingMapping}
+                        onClick={() => {
+                          const next = { ...editMapping };
+                          delete next[from];
+                          setEditMapping(next);
+                          handleSaveMapping(next);
+                        }}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">暂无映射（请求模型将原样转发）</p>
+              )}
+
+              {/* 添加新映射 */}
+              <div className="flex items-center gap-2 pt-1">
+                <Input
+                  placeholder="请求模型名"
+                  value={newMapFrom}
+                  onChange={e => setNewMapFrom(e.target.value)}
+                  className="h-7 text-xs font-mono w-48"
+                />
+                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <Input
+                  placeholder="实际模型名"
+                  value={newMapTo}
+                  onChange={e => setNewMapTo(e.target.value)}
+                  className="h-7 text-xs font-mono w-48"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2.5 text-xs gap-1"
+                  disabled={!newMapFrom.trim() || !newMapTo.trim() || savingMapping}
+                  onClick={() => {
+                    const next = { ...editMapping, [newMapFrom.trim()]: newMapTo.trim() };
+                    setEditMapping(next);
+                    setNewMapFrom('');
+                    setNewMapTo('');
+                    handleSaveMapping(next);
+                  }}
+                >
+                  {savingMapping ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                  添加
+                </Button>
+              </div>
             </div>
           </div>
         )}
