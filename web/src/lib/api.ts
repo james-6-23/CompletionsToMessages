@@ -114,7 +114,7 @@ export const api = {
   deleteApiKey: (id: string) => deleteJson<{ ok: boolean }>(`/api/keys/${id}`),
   toggleApiKey: (id: string, is_active: boolean) => putJson<{ ok: boolean }>(`/api/keys/${id}/status`, { is_active }),
   getApiKeyFull: (id: string) => fetchJson<{ api_key: string }>(`/api/keys/${id}/full`),
-  testApiKey: (id: string) => postJson<TestKeyResult>(`/api/keys/${id}/test`, {}),
+  testApiKey: (id: string, model?: string) => postJson<TestKeyResult>(`/api/keys/${id}/test`, { model: model || null }),
 
   // 渠道（上游端点）
   listEndpoints: () => fetchJson<Endpoint[]>('/api/endpoints'),
@@ -122,6 +122,7 @@ export const api = {
   updateEndpoint: (id: string, data: { name: string; base_url: string }) => putJson<{ ok: boolean }>(`/api/endpoints/${id}`, data),
   deleteEndpoint: (id: string) => deleteJson<{ ok: boolean }>(`/api/endpoints/${id}`),
   toggleEndpoint: (id: string, is_active: boolean) => putJson<{ ok: boolean }>(`/api/endpoints/${id}/status`, { is_active }),
+  getEndpointModels: (id: string) => fetchJson<{ data: { id: string }[] }>(`/api/endpoints/${id}/models`),
 
   // 访问密钥
   listAccessTokens: () => fetchJson<AccessToken[]>('/api/access-tokens'),

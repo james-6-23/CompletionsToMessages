@@ -131,6 +131,35 @@ function EndpointCard({
   const [testingKeys, setTestingKeys] = useState<Set<string>>(new Set());
   const [testResults, setTestResults] = useState<Record<string, boolean | null>>({});
 
+  /* 模型列表 */
+  const [models, setModels] = useState<string[]>([]);
+  const [testModel, setTestModel] = useState('');
+  const [loadingModels, setLoadingModels] = useState(false);
+
+  /* 展开时自动加载模型列表 */
+  useEffect(() => {
+    if (expanded && models.length === 0 && keys.length > 0) {
+      fetchModels();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
+
+  /* 加载模型列表 */
+  async function fetchModels() {
+    if (loadingModels) return;
+    setLoadingModels(true);
+    try {
+      const resp = await api.getEndpointModels(endpoint.id);
+      const ids = (resp.data || []).map((m: { id: string }) => m.id).sort();
+      setModels(ids);
+      if (ids.length > 0 && !testModel) setTestModel(ids[0]);
+    } catch (e) {
+      console.error('获取模型列表失败:', e);
+    } finally {
+      setLoadingModels(false);
+    }
+  }
+
   /* 保存端点编辑 */
   async function handleSaveEndpoint() {
     if (!editName.trim() || !editUrl.trim()) return;
@@ -225,7 +254,7 @@ function EndpointCard({
     setTestingKeys(prev => new Set(prev).add(id));
     setTestResults(prev => ({ ...prev, [id]: null }));
     try {
-      const result = await api.testApiKey(id);
+      const result = await api.testApiKey(id, testModel || undefined);
       setTestResults(prev => ({ ...prev, [id]: result.valid }));
       toast(result.valid ? '密钥测试通过' : '密钥测试失败', result.valid ? 'success' : 'error');
     } catch {
@@ -336,6 +365,26 @@ function EndpointCard({
         {/* 展开区域 */}
         {expanded && (
           <div className="border-t border-border/50 p-5 pt-4 space-y-4">
+            {/* 测试模型选择 */}
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-muted-foreground shrink-0">测试模型:</span>
+              <select
+                className="h-8 rounded-lg border border-input bg-background px-2 text-xs transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/10 focus:outline-none min-w-[200px]"
+                value={testModel}
+                onChange={e => setTestModel(e.target.value)}
+                onFocus={fetchModels}
+              >
+                {models.length === 0 && !loadingModels && <option value="">点击加载模型列表</option>}
+                {loadingModels && <option value="">加载中...</option>}
+                {models.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <button
+                onClick={fetchModels}
+                className="text-xs text-primary hover:underline"
+              >
+                {loadingModels ? '加载中...' : '刷新'}
+              </button>
+            </div>
             {/* 编辑模式 */}
             {editing && (
               <Card className="border-border/50 bg-muted/30">

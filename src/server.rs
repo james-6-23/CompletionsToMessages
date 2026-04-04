@@ -116,6 +116,7 @@ pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> 
         .route("/endpoints", get(stats_api::list_endpoints).post(stats_api::add_endpoint))
         .route("/endpoints/:id", put(stats_api::update_endpoint).delete(stats_api::delete_endpoint))
         .route("/endpoints/:id/status", put(stats_api::update_endpoint_status))
+        .route("/endpoints/:id/models", get(stats_api::get_endpoint_models))
         .route("/access-tokens", get(stats_api::list_access_tokens).post(stats_api::add_access_token))
         .route("/access-tokens/:id", delete(stats_api::delete_access_token))
         .route("/access-tokens/:id/status", put(stats_api::update_access_token_status))

@@ -388,10 +388,77 @@ pub async fn get_key_full(
     Ok(Json(json!({"api_key": api_key})))
 }
 
+/// GET /api/endpoints/:id/models — 获取端点的模型列表
+pub async fn get_endpoint_models(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ProxyError> {
+    // 获取端点 URL + 第一个活跃 key
+    let db = Arc::clone(&state.db);
+    let id_clone = id.clone();
+    let endpoint_url = tokio::task::spawn_blocking(move || db.get_endpoint_url(&id_clone))
+        .await
+        .map_err(|e| ProxyError::Internal(format!("查询失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+
+    let Some(base_url) = endpoint_url else {
+        return Err(ProxyError::Internal("端点不存在或未启用".to_string()));
+    };
+
+    let db2 = Arc::clone(&state.db);
+    let keys = tokio::task::spawn_blocking(move || db2.list_api_keys(Some(&id)))
+        .await
+        .map_err(|e| ProxyError::Internal(format!("查询失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+
+    let active_key = keys.iter().find(|k| k.is_active);
+    let Some(key_row) = active_key else {
+        return Err(ProxyError::Internal("该端点暂无活跃密钥".to_string()));
+    };
+
+    // 获取完整 key
+    let db3 = Arc::clone(&state.db);
+    let key_id = key_row.id.clone();
+    let full = tokio::task::spawn_blocking(move || db3.get_api_key_full(&key_id))
+        .await
+        .map_err(|e| ProxyError::Internal(format!("查询失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+
+    let Some((api_key, _)) = full else {
+        return Err(ProxyError::Internal("无法获取密钥".to_string()));
+    };
+
+    let models_url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+    let resp = state
+        .http_client
+        .get(&models_url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .send()
+        .await
+        .map_err(|e| ProxyError::Internal(format!("请求模型列表失败: {e}")))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        return Ok(Json(json!({"error": body, "status": status, "data": []})));
+    }
+
+    let body: Value = resp.json().await.unwrap_or(json!({"data": []}));
+    Ok(Json(body))
+}
+
+/// 测试密钥请求体
+#[derive(Debug, Deserialize)]
+pub struct TestKeyRequest {
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
 /// POST /api/keys/:id/test — 测试 API Key 是否有效
 pub async fn test_key(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    Json(body): Json<TestKeyRequest>,
 ) -> Result<Json<Value>, ProxyError> {
     // 从 DB 获取完整密钥 + 端点 URL
     let db = Arc::clone(&state.db);
@@ -409,8 +476,9 @@ pub async fn test_key(
         return Err(ProxyError::Internal("密钥未绑定有效端点".to_string()));
     }
 
+    let model = body.model.unwrap_or_else(|| "gpt-4o-mini".to_string());
     let test_body = json!({
-        "model": "gpt-4o-mini",
+        "model": model,
         "messages": [{"role": "user", "content": "hi"}],
         "max_tokens": 1
     });
