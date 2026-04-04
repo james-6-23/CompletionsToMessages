@@ -10,7 +10,12 @@ interface Props {
 export function ModelStatsTable({ data, loading }: Props) {
   if (loading) {
     return (
-      <div className="flex h-40 items-center justify-center text-muted-foreground">加载中...</div>
+      <div className="flex h-40 items-center justify-center text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <div className="spinner !w-5 !h-5 !border-2" />
+          加载中...
+        </div>
+      </div>
     );
   }
 
@@ -21,7 +26,7 @@ export function ModelStatsTable({ data, loading }: Props) {
   }
 
   return (
-    <div className="rounded-xl border border-border/50 bg-card/80 backdrop-blur-sm overflow-hidden">
+    <div className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow>

@@ -33,8 +33,8 @@ export function RequestLogTable({ timeRange, refreshMs }: Props) {
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
 
   function durationColor(ms: number): string {
-    if (ms <= 5000) return 'text-green-500';
-    if (ms <= 120000) return 'text-orange-500';
+    if (ms <= 5000) return 'text-emerald-500';
+    if (ms <= 120000) return 'text-amber-500';
     return 'text-red-500';
   }
 
@@ -63,7 +63,7 @@ export function RequestLogTable({ timeRange, refreshMs }: Props) {
       </div>
 
       {/* 表格 */}
-      <div className="rounded-xl border border-border/50 bg-card/80 backdrop-blur-sm overflow-hidden">
+      <div className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
@@ -81,27 +81,32 @@ export function RequestLogTable({ timeRange, refreshMs }: Props) {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">加载中...</TableCell>
+                <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="spinner !w-5 !h-5 !border-2" />
+                    加载中...
+                  </div>
+                </TableCell>
               </TableRow>
             ) : !data?.data.length ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">暂无数据</TableCell>
+                <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">暂无数据</TableCell>
               </TableRow>
             ) : (
               data.data.map((log) => (
                 <TableRow key={log.request_id}>
-                  <TableCell className="whitespace-nowrap text-xs">{fmtTimestamp(log.created_at)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{fmtTimestamp(log.created_at)}</TableCell>
                   <TableCell className="font-mono text-xs">{log.model}</TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtInt(log.input_tokens)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtInt(log.output_tokens)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtInt(log.cache_read_tokens)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtInt(log.cache_creation_tokens)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtUsd(log.total_cost_usd, 4)}</TableCell>
-                  <TableCell className={`text-right tabular-nums ${durationColor(log.latency_ms)}`}>{fmtDuration(log.latency_ms)}</TableCell>
+                  <TableCell className="text-right tabular-nums text-sm">{fmtInt(log.input_tokens)}</TableCell>
+                  <TableCell className="text-right tabular-nums text-sm">{fmtInt(log.output_tokens)}</TableCell>
+                  <TableCell className="text-right tabular-nums text-sm">{fmtInt(log.cache_read_tokens)}</TableCell>
+                  <TableCell className="text-right tabular-nums text-sm">{fmtInt(log.cache_creation_tokens)}</TableCell>
+                  <TableCell className="text-right tabular-nums text-sm">{fmtUsd(log.total_cost_usd, 4)}</TableCell>
+                  <TableCell className={`text-right tabular-nums text-sm ${durationColor(log.latency_ms)}`}>{fmtDuration(log.latency_ms)}</TableCell>
                   <TableCell className="text-center">
                     <Badge variant={log.status_code === 200 ? 'default' : 'destructive'}
                       className={log.status_code === 200
-                        ? 'bg-green-500/10 text-green-500 border-green-500/20'
+                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
                         : 'bg-red-500/10 text-red-500 border-red-500/20'}>
                       {log.status_code}
                     </Badge>
@@ -120,7 +125,7 @@ export function RequestLogTable({ timeRange, refreshMs }: Props) {
             共 {data?.total ?? 0} 条，第 {page}/{totalPages} 页
           </p>
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            <Button variant="outline" size="icon" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="h-8 w-8">
               <ChevronLeft className="h-4 w-4" />
             </Button>
             {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -128,12 +133,12 @@ export function RequestLogTable({ timeRange, refreshMs }: Props) {
               const p = start + i;
               if (p > totalPages) return null;
               return (
-                <Button key={p} variant={p === page ? 'default' : 'outline'} size="sm" onClick={() => setPage(p)}>
+                <Button key={p} variant={p === page ? 'default' : 'outline'} size="sm" onClick={() => setPage(p)} className="h-8 w-8 p-0">
                   {p}
                 </Button>
               );
             })}
-            <Button variant="outline" size="icon" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            <Button variant="outline" size="icon" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} className="h-8 w-8">
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>

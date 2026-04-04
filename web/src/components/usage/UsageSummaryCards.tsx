@@ -18,16 +18,16 @@ interface StatCardProps {
 
 function StatCard({ icon, label, value, subValues, iconBg, iconColor }: StatCardProps) {
   return (
-    <div className="rounded-xl border border-border/50 bg-card/80 p-6 backdrop-blur-sm shadow-sm">
+    <div className="rounded-2xl border border-border/50 bg-card p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
       <div className="flex items-center gap-4">
-        <div className={`flex h-12 w-12 items-center justify-center rounded-lg ${iconBg}`}>
+        <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${iconBg}`}>
           <span className={iconColor}>{icon}</span>
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="text-2xl font-bold tracking-tight">{value}</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+          <p className="text-2xl font-bold tracking-tight mt-0.5">{value}</p>
           {subValues && (
-            <div className="mt-1 flex gap-3 text-xs text-muted-foreground">
+            <div className="mt-1.5 flex gap-3 text-xs text-muted-foreground">
               {subValues.map((sv) => (
                 <span key={sv.label}>
                   {sv.label}: <span className="font-medium text-foreground">{sv.value}</span>
@@ -46,7 +46,7 @@ export function UsageSummaryCards({ data, loading }: Props) {
     return (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-[120px] animate-pulse rounded-xl border border-border/50 bg-card/80" />
+          <div key={i} className="h-[108px] animate-pulse rounded-2xl border border-border/50 bg-card" />
         ))}
       </div>
     );
@@ -69,8 +69,8 @@ export function UsageSummaryCards({ data, loading }: Props) {
         icon={<DollarSign className="h-6 w-6" />}
         label="总成本"
         value={fmtUsd(data.total_cost, costDigits)}
-        iconBg="bg-green-500/10"
-        iconColor="text-green-500"
+        iconBg="bg-emerald-500/10"
+        iconColor="text-emerald-500"
       />
       <StatCard
         icon={<Layers className="h-6 w-6" />}
@@ -80,8 +80,8 @@ export function UsageSummaryCards({ data, loading }: Props) {
           { label: '输入', value: fmtInt(data.total_input_tokens) },
           { label: '输出', value: fmtInt(data.total_output_tokens) },
         ]}
-        iconBg="bg-purple-500/10"
-        iconColor="text-purple-500"
+        iconBg="bg-violet-500/10"
+        iconColor="text-violet-500"
       />
       <StatCard
         icon={<Database className="h-6 w-6" />}
@@ -91,8 +91,8 @@ export function UsageSummaryCards({ data, loading }: Props) {
           { label: '创建', value: fmtInt(data.total_cache_creation_tokens) },
           { label: '命中', value: fmtInt(data.total_cache_read_tokens) },
         ]}
-        iconBg="bg-orange-500/10"
-        iconColor="text-orange-500"
+        iconBg="bg-amber-500/10"
+        iconColor="text-amber-500"
       />
     </div>
   );

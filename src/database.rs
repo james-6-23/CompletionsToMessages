@@ -74,7 +74,7 @@ pub struct RequestLogEntry {
 /// 分页查询结果
 #[derive(Debug, Serialize)]
 pub struct PaginatedLogs {
-    pub logs: Vec<RequestLogEntry>,
+    pub data: Vec<RequestLogEntry>,
     pub total: u64,
     pub page: u32,
     pub page_size: u32,
@@ -484,7 +484,7 @@ impl Database {
         }
 
         Ok(PaginatedLogs {
-            logs,
+            data: logs,
             total,
             page,
             page_size,

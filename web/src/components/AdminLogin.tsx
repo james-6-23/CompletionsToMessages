@@ -1,15 +1,14 @@
 import { useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { api, setAdminSecret } from '@/lib/api';
-import { Shield, LogIn, Loader2 } from 'lucide-react';
+import { Shield, LogIn, Loader2, Sun, Moon } from 'lucide-react';
 
 interface LoginProps {
   onSuccess: () => void;
+  theme: 'light' | 'dark';
+  onThemeToggle: (e: React.MouseEvent) => void;
 }
 
-export function AdminLogin({ onSuccess }: LoginProps) {
+export function AdminLogin({ onSuccess, theme, onThemeToggle }: LoginProps) {
   const [secret, setSecret] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -38,36 +37,59 @@ export function AdminLogin({ onSuccess }: LoginProps) {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-sm border border-border/50 bg-card/80 backdrop-blur-sm shadow-lg">
-        <CardContent className="p-6 space-y-4">
-          <div className="flex flex-col items-center gap-2 mb-2">
-            <div className="p-3 rounded-full bg-primary/10">
-              <Shield className="h-6 w-6 text-primary" />
-            </div>
-            <h1 className="text-lg font-semibold">CompletionsToMessages</h1>
-            <p className="text-sm text-muted-foreground">请输入管理密钥</p>
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-50 via-white to-blue-50/30 dark:from-[hsl(222,84%,4.9%)] dark:via-[hsl(222,47%,6%)] dark:to-[hsl(222,47%,8%)]">
+      {/* 右上角主题切换 */}
+      <button
+        onClick={onThemeToggle}
+        className="fixed top-5 right-5 flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/60 dark:hover:bg-white/10 transition-all duration-150"
+        title={theme === 'dark' ? '切换浅色' : '切换深色'}
+      >
+        {theme === 'dark' ? <Sun className="size-[18px]" /> : <Moon className="size-[18px]" />}
+      </button>
+
+      <div className="w-full max-w-[400px]">
+        {/* Logo + 标题 */}
+        <div className="text-center mb-8">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 shadow-lg shadow-primary/10">
+            <Shield className="h-8 w-8 text-primary" />
           </div>
+          <h1 className="text-[28px] font-bold bg-gradient-to-br from-primary to-blue-400 bg-clip-text text-transparent">
+            CC-Proxy
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">请输入管理密钥以继续</p>
+        </div>
 
-          <Input
-            type="password"
-            placeholder="ADMIN_SECRET"
-            value={secret}
-            onChange={e => setSecret(e.target.value)}
-            onKeyDown={handleKeyDown}
-            autoFocus
-          />
+        {/* 登录卡片 */}
+        <div className="rounded-3xl border border-border bg-card/80 shadow-xl shadow-black/[0.03] p-6 backdrop-blur-sm">
+          <div className="space-y-4">
+            <div>
+              <label className="block mb-2 text-sm font-semibold text-muted-foreground">管理密钥</label>
+              <input
+                type="password"
+                placeholder="ADMIN_SECRET"
+                value={secret}
+                onChange={e => { setSecret(e.target.value); setError(''); }}
+                onKeyDown={handleKeyDown}
+                autoFocus
+                className="w-full h-11 px-4 rounded-xl border border-border bg-background text-[15px] outline-none transition-all focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
+              />
+            </div>
 
-          {error && (
-            <p className="text-sm text-red-500 text-center">{error}</p>
-          )}
+            {error && (
+              <div className="text-sm text-red-500 font-medium px-1">{error}</div>
+            )}
 
-          <Button className="w-full gap-2" onClick={handleLogin} disabled={!secret.trim() || loading}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
-            登录
-          </Button>
-        </CardContent>
-      </Card>
+            <button
+              className="w-full h-11 rounded-xl bg-gradient-to-r from-primary to-blue-400 text-primary-foreground font-semibold text-[15px] shadow-lg shadow-primary/20 transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
+              onClick={handleLogin}
+              disabled={!secret.trim() || loading}
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+              登录
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

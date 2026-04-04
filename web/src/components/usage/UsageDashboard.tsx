@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
 import { UsageSummaryCards } from './UsageSummaryCards';
 import { UsageTrendChart } from './UsageTrendChart';
 import { RequestLogTable } from './RequestLogTable';
@@ -8,7 +7,7 @@ import { ModelStatsTable } from './ModelStatsTable';
 import { ApiKeyManager } from './ApiKeyManager';
 import { useUsageSummary, useUsageTrends, useModelStats } from '@/hooks/use-usage';
 import type { TimeRange } from '@/types/usage';
-import { Timer, KeyRound } from 'lucide-react';
+import { Timer, KeyRound, RefreshCw } from 'lucide-react';
 
 const REFRESH_OPTIONS = [
   { label: '关闭', value: 0 },
@@ -20,7 +19,7 @@ const REFRESH_OPTIONS = [
 
 export function UsageDashboard() {
   const [timeRange, setTimeRange] = useState<TimeRange>('1d');
-  const [refreshIdx, setRefreshIdx] = useState(3); // 默认 30s
+  const [refreshIdx, setRefreshIdx] = useState(3);
   const refreshMs = REFRESH_OPTIONS[refreshIdx].value;
   const days = timeRange === '1d' ? 1 : 7;
 
@@ -33,19 +32,26 @@ export function UsageDashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* 页头 */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">使用统计</h1>
-          <p className="mt-1 text-muted-foreground">查看 AI 模型的使用情况和成本统计</p>
+          <h2 className="text-[clamp(28px,4vw,38px)] font-semibold leading-[1.08] tracking-tight">
+            使用统计
+          </h2>
+          <p className="mt-2 text-muted-foreground text-[15px] leading-relaxed max-w-[500px]">
+            查看 AI 模型的使用情况和成本统计
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {/* 刷新间隔 */}
-          <Button variant="outline" size="sm" onClick={cycleRefresh} className="gap-1.5">
-            <Timer className="h-4 w-4" />
+          <button
+            onClick={cycleRefresh}
+            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-border bg-background text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            {refreshMs > 0 ? <RefreshCw className="h-3.5 w-3.5 animate-spin" style={{ animationDuration: '3s' }} /> : <Timer className="h-3.5 w-3.5" />}
             {REFRESH_OPTIONS[refreshIdx].label}
-          </Button>
+          </button>
           {/* 时间范围 */}
           <Tabs value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
             <TabsList>
@@ -68,7 +74,7 @@ export function UsageDashboard() {
           <TabsTrigger value="logs">请求日志</TabsTrigger>
           <TabsTrigger value="models">模型统计</TabsTrigger>
           <TabsTrigger value="keys" className="gap-1.5">
-            <KeyRound className="h-4 w-4" />
+            <KeyRound className="h-3.5 w-3.5" />
             密钥管理
           </TabsTrigger>
         </TabsList>

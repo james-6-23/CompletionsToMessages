@@ -32,11 +32,9 @@ function transform(rows: DailyStats[]): ChartRow[] {
 
 function formatXAxis(value: string, timeRange: TimeRange): string {
   if (timeRange === '1d') {
-    // 按小时分组的数据，取时间部分
     const parts = value.split(' ');
     return parts.length > 1 ? parts[1].slice(0, 5) : value;
   }
-  // 7 天按日分组，取 MM/dd
   const parts = value.split('-');
   return parts.length >= 3 ? `${parts[1]}/${parts[2]}` : value;
 }
@@ -65,11 +63,11 @@ const SERIES_LABELS: Record<string, string> = {
 function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-border/50 bg-card/95 p-3 shadow-lg backdrop-blur-sm text-sm">
-      <p className="mb-2 font-medium text-foreground">{label}</p>
+    <div className="rounded-xl border border-border/60 bg-card p-3 shadow-lg text-sm">
+      <p className="mb-2 font-semibold text-foreground">{label}</p>
       {payload.map((entry) => (
-        <div key={entry.dataKey} className="flex items-center gap-2">
-          <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: entry.color }} />
+        <div key={entry.dataKey} className="flex items-center gap-2 py-0.5">
+          <span className="inline-block h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
           <span className="text-muted-foreground">{SERIES_LABELS[entry.dataKey] ?? entry.name}:</span>
           <span className="font-medium text-foreground">
             {entry.dataKey === 'cost' ? fmtUsd(entry.value, 4) : fmtTokenK(entry.value)}
@@ -84,10 +82,12 @@ export function UsageTrendChart({ data, loading, timeRange }: Props) {
   const chartData = transform(data);
 
   return (
-    <div className="rounded-xl border border-border/50 bg-card/80 p-6 backdrop-blur-sm">
-      <h3 className="mb-4 text-lg font-semibold">趋势图</h3>
+    <div className="rounded-2xl border border-border/50 bg-card p-6 shadow-sm">
+      <h3 className="mb-5 text-lg font-semibold">趋势图</h3>
       {loading ? (
-        <div className="flex h-[350px] items-center justify-center text-muted-foreground">加载中...</div>
+        <div className="flex h-[350px] items-center justify-center">
+          <div className="spinner" />
+        </div>
       ) : chartData.length === 0 ? (
         <div className="flex h-[350px] items-center justify-center text-muted-foreground">暂无数据</div>
       ) : (
@@ -95,38 +95,44 @@ export function UsageTrendChart({ data, loading, timeRange }: Props) {
           <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="gInput" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25} />
                 <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="gOutput" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                <stop offset="5%" stopColor="#22c55e" stopOpacity={0.25} />
                 <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="gCacheCreate" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#f97316" stopOpacity={0.3} />
+                <stop offset="5%" stopColor="#f97316" stopOpacity={0.25} />
                 <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="gCacheRead" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3} />
+                <stop offset="5%" stopColor="#a855f7" stopOpacity={0.25} />
                 <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-border))" strokeOpacity={0.5} />
             <XAxis
               dataKey="date"
               tickFormatter={(v: string) => formatXAxis(v, timeRange)}
-              tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+              tick={{ fontSize: 12, fill: 'hsl(var(--color-muted-foreground))' }}
+              axisLine={false}
+              tickLine={false}
             />
             <YAxis
               yAxisId="tokens"
               tickFormatter={(v: number) => fmtTokenK(v)}
-              tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+              tick={{ fontSize: 12, fill: 'hsl(var(--color-muted-foreground))' }}
+              axisLine={false}
+              tickLine={false}
             />
             <YAxis
               yAxisId="cost"
               orientation="right"
               tickFormatter={(v: number) => `$${v.toFixed(2)}`}
-              tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+              tick={{ fontSize: 12, fill: 'hsl(var(--color-muted-foreground))' }}
+              axisLine={false}
+              tickLine={false}
             />
             <Tooltip content={<CustomTooltip />} />
             <Area yAxisId="tokens" type="monotone" dataKey="input" stroke="#3b82f6" fill="url(#gInput)" strokeWidth={2} name="输入" />

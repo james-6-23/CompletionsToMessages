@@ -30,11 +30,13 @@ function UpstreamUrlConfig() {
   }
 
   return (
-    <Card className="border border-border/50 bg-card/80 backdrop-blur-sm">
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Globe className="h-4 w-4 text-blue-500" />
-          <span className="text-sm font-medium">上游端点地址</span>
+    <Card className="border-border/50">
+      <CardContent className="p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">
+            <Globe className="h-4 w-4 text-blue-500" />
+          </div>
+          <span className="text-sm font-semibold">上游端点地址</span>
         </div>
         <div className="flex gap-2">
           <Input
@@ -44,12 +46,12 @@ function UpstreamUrlConfig() {
             className="flex-1"
             disabled={loading}
           />
-          <Button size="sm" onClick={handleSave} disabled={!url.trim() || loading} className="gap-1.5">
-            {saved ? <Check className="h-4 w-4 text-green-500" /> : <Save className="h-4 w-4" />}
+          <Button size="sm" onClick={handleSave} disabled={!url.trim() || loading}>
+            {saved ? <Check className="h-4 w-4 text-emerald-500" /> : <Save className="h-4 w-4" />}
             {saved ? '已保存' : '保存'}
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground mt-1.5">填写 OpenAI 兼容 API 的服务端地址，不要以斜杠结尾</p>
+        <p className="text-xs text-muted-foreground mt-2">填写 OpenAI 兼容 API 的服务端地址，不要以斜杠结尾</p>
       </CardContent>
     </Card>
   );
@@ -102,19 +104,21 @@ function AuthTokenConfig() {
   }
 
   return (
-    <Card className="border border-border/50 bg-card/80 backdrop-blur-sm">
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Shield className="h-4 w-4 text-green-500" />
-          <span className="text-sm font-medium">入站认证 Token</span>
-          {hasToken && <Badge variant="outline" className="text-green-600 border-green-500/30 text-xs">已配置</Badge>}
-          {!hasToken && !loading && <Badge variant="outline" className="text-orange-500 border-orange-500/30 text-xs">未配置</Badge>}
+    <Card className="border-border/50">
+      <CardContent className="p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10">
+            <Shield className="h-4 w-4 text-emerald-500" />
+          </div>
+          <span className="text-sm font-semibold">入站认证 Token</span>
+          {hasToken && <Badge variant="outline" className="text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs">已配置</Badge>}
+          {!hasToken && !loading && <Badge variant="outline" className="text-amber-500 border-amber-500/30 text-xs">未配置</Badge>}
         </div>
 
         {hasToken && tokenMasked && !generatedToken && (
           <div className="flex items-center gap-2 text-sm">
-            <code className="bg-muted px-2 py-0.5 rounded font-mono">{tokenMasked}</code>
-            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setShowInput(true)}>
+            <code className="bg-muted px-2.5 py-1 rounded-lg font-mono text-sm">{tokenMasked}</code>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowInput(true)}>
               <RefreshCw className="h-3 w-3" /> 重新生成
             </Button>
           </div>
@@ -123,18 +127,18 @@ function AuthTokenConfig() {
         {generatedToken && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <code className="bg-green-500/10 text-green-600 px-2 py-1 rounded font-mono text-sm flex-1 break-all">{generatedToken}</code>
-              <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleCopy(generatedToken)}>
+              <code className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-3 py-1.5 rounded-lg font-mono text-sm flex-1 break-all">{generatedToken}</code>
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleCopy(generatedToken)}>
                 <Copy className="h-3.5 w-3.5" />
               </Button>
             </div>
-            <p className="text-xs text-orange-500">请立即复制此 Token，刷新后将不再显示完整值。Claude Code 客户端的 ANTHROPIC_API_KEY 填此值。</p>
+            <p className="text-xs text-amber-500">请立即复制此 Token，刷新后将不再显示完整值。Claude Code 客户端的 ANTHROPIC_API_KEY 填此值。</p>
           </div>
         )}
 
         {!hasToken && !showInput && !generatedToken && (
           <div className="flex gap-2">
-            <Button size="sm" onClick={handleGenerate} className="gap-1.5">
+            <Button size="sm" onClick={handleGenerate}>
               <RefreshCw className="h-4 w-4" /> 自动生成
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowInput(true)}>自定义</Button>
@@ -156,8 +160,8 @@ function AuthTokenConfig() {
           </div>
         )}
 
-        <p className="text-xs text-muted-foreground mt-1.5">
-          Claude Code 客户端设置 <code className="bg-muted px-1 rounded">ANTHROPIC_API_KEY</code> 为此 Token
+        <p className="text-xs text-muted-foreground mt-2">
+          Claude Code 客户端设置 <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">ANTHROPIC_API_KEY</code> 为此 Token
         </p>
       </CardContent>
     </Card>
@@ -175,7 +179,6 @@ export function ApiKeyManager() {
   const [testingKeys, setTestingKeys] = useState<Set<string>>(new Set());
   const [testResults, setTestResults] = useState<Record<string, boolean | null>>({});
 
-  // 过滤密钥列表
   const filtered = keys.filter(k => {
     if (statusFilter === 'active' && !k.is_active) return false;
     if (statusFilter === 'inactive' && k.is_active) return false;
@@ -183,7 +186,6 @@ export function ApiKeyManager() {
     return true;
   });
 
-  // 汇总统计
   const totalKeys = keys.length;
   const activeKeys = keys.filter(k => k.is_active).length;
   const totalRequests = keys.reduce((sum, k) => sum + k.total_requests, 0);
@@ -234,7 +236,6 @@ export function ApiKeyManager() {
   }
 
   function handleCopy(masked: string) {
-    // 只能复制掩码版本（出于安全考虑，完整密钥不会暴露到前端）
     navigator.clipboard.writeText(masked).catch(() => {});
   }
 
@@ -256,18 +257,18 @@ export function ApiKeyManager() {
 
       {/* 汇总统计 */}
       <div className="flex items-center gap-6 text-sm text-muted-foreground">
-        <span>密钥数量: <strong className="text-foreground">{totalKeys}</strong> (活跃 <span className="text-green-500">{activeKeys}</span>)</span>
+        <span>密钥数量: <strong className="text-foreground">{totalKeys}</strong> (活跃 <span className="text-emerald-500 font-semibold">{activeKeys}</span>)</span>
         <span>总请求: <strong className="text-foreground">{totalRequests.toLocaleString()}</strong></span>
       </div>
 
       {/* 工具栏 */}
       <div className="flex flex-wrap items-center gap-3">
-        <Button size="sm" onClick={() => setShowAddForm(!showAddForm)} className="gap-1.5">
+        <Button size="sm" onClick={() => setShowAddForm(!showAddForm)}>
           <Plus className="h-4 w-4" /> 添加密钥
         </Button>
 
         <select
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          className="h-9 rounded-xl border border-input bg-background px-3 text-sm transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/10 focus:outline-none"
           value={statusFilter}
           onChange={e => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
         >
@@ -286,8 +287,8 @@ export function ApiKeyManager() {
 
       {/* 添加密钥表单 */}
       {showAddForm && (
-        <Card className="border border-border/50 bg-card/80 backdrop-blur-sm">
-          <CardContent className="p-4 space-y-3">
+        <Card className="border-border/50">
+          <CardContent className="p-5 space-y-3">
             <div className="flex flex-col gap-3 sm:flex-row">
               <Input
                 placeholder="API Key (sk-...)"
@@ -313,15 +314,17 @@ export function ApiKeyManager() {
       {/* 加载状态 */}
       {loading && keys.length === 0 && (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin mr-2" /> 加载中...
+          <div className="spinner mr-3" /> 加载中...
         </div>
       )}
 
       {/* 空状态 */}
       {!loading && keys.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-          <KeyRound className="h-12 w-12 mb-4 opacity-30" />
-          <p className="text-lg font-medium">暂无密钥</p>
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted mb-4">
+            <KeyRound className="h-8 w-8 opacity-40" />
+          </div>
+          <p className="text-lg font-semibold text-foreground">暂无密钥</p>
           <p className="text-sm mt-1">点击「添加密钥」开始管理 API Key</p>
         </div>
       )}
@@ -347,7 +350,6 @@ export function ApiKeyManager() {
   );
 }
 
-// 单个密钥卡片组件
 function KeyCard({ apiKey, isTesting, testResult, isRevealed, onToggle, onDelete, onTest, onCopy, onToggleReveal }: {
   apiKey: ApiKey;
   isTesting: boolean;
@@ -360,18 +362,18 @@ function KeyCard({ apiKey, isTesting, testResult, isRevealed, onToggle, onDelete
   onToggleReveal: () => void;
 }) {
   return (
-    <Card className={`border transition-colors ${apiKey.is_active ? 'border-green-500/30 bg-green-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
-      <CardContent className="p-4 space-y-3">
-        {/* 头部：状态 + 密钥 */}
+    <Card className={`transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 ${apiKey.is_active ? 'border-emerald-500/20 bg-emerald-500/[0.03]' : 'border-red-500/20 bg-red-500/[0.03]'}`}>
+      <CardContent className="p-5 space-y-3">
+        {/* 头部 */}
         <div className="flex items-center justify-between">
           <Badge
             variant={apiKey.is_active ? 'default' : 'destructive'}
-            className={`text-xs cursor-pointer ${apiKey.is_active ? 'bg-green-500/10 text-green-600 hover:bg-green-500/20' : ''}`}
+            className={`text-xs cursor-pointer transition-colors ${apiKey.is_active ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/20' : ''}`}
             onClick={onToggle}
           >
-            {apiKey.is_active ? '✅ 有效' : '❌ 失效'}
+            {apiKey.is_active ? '有效' : '失效'}
           </Badge>
-          <code className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
+          <code className="text-sm font-mono bg-muted px-2.5 py-1 rounded-lg">
             {apiKey.api_key_masked}
           </code>
         </div>
@@ -383,10 +385,10 @@ function KeyCard({ apiKey, isTesting, testResult, isRevealed, onToggle, onDelete
 
         {/* 操作按钮行 */}
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onToggleReveal} title="显示/隐藏">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleReveal} title="显示/隐藏">
             {isRevealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCopy} title="复制">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onCopy} title="复制">
             <Copy className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -400,24 +402,24 @@ function KeyCard({ apiKey, isTesting, testResult, isRevealed, onToggle, onDelete
           )}
         </div>
 
-        {/* 操作行：测试 + 删除 */}
-        <div className="flex items-center justify-between pt-1 border-t border-border/50">
+        {/* 操作行 */}
+        <div className="flex items-center justify-between pt-2 border-t border-border/50">
           <Button
             variant="ghost"
             size="sm"
-            className="text-blue-500 hover:text-blue-600 h-7 text-xs gap-1"
+            className="text-blue-500 hover:text-blue-600 h-8 text-xs"
             onClick={onTest}
             disabled={isTesting}
           >
             {isTesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <FlaskConical className="h-3 w-3" />}
             测试
-            {testResult === true && <Check className="h-3 w-3 text-green-500" />}
+            {testResult === true && <Check className="h-3 w-3 text-emerald-500" />}
             {testResult === false && <X className="h-3 w-3 text-red-500" />}
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            className="text-red-500 hover:text-red-600 h-7 text-xs gap-1"
+            className="text-red-500 hover:text-red-600 h-8 text-xs"
             onClick={onDelete}
           >
             <Trash2 className="h-3 w-3" /> 删除
