@@ -2,7 +2,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import type { DailyStats, TimeRange } from '@/types/usage';
-import { fmtTokenK, parseFiniteNumber } from './format';
+import { fmtTokenK } from './format';
 
 interface Props {
   data: DailyStats[];
@@ -16,7 +16,6 @@ interface ChartRow {
   output: number;
   cacheCreate: number;
   cacheRead: number;
-  cost: number;
 }
 
 function transform(rows: DailyStats[]): ChartRow[] {
@@ -26,17 +25,14 @@ function transform(rows: DailyStats[]): ChartRow[] {
     output: r.total_output_tokens,
     cacheCreate: r.total_cache_creation_tokens,
     cacheRead: r.total_cache_read_tokens,
-    cost: parseFiniteNumber(r.total_cost) ?? 0,
   }));
 }
 
 function formatXAxis(value: string, timeRange: TimeRange): string {
   if (timeRange === '1h' || timeRange === '6h' || timeRange === '1d') {
-    // 按分钟/小时分组的数据，取时间部分
     const parts = value.split(' ');
     return parts.length > 1 ? parts[1].slice(0, 5) : value;
   }
-  // 7 天/30 天按日分组，取 MM/dd
   const parts = value.split('-');
   return parts.length >= 3 ? `${parts[1]}/${parts[2]}` : value;
 }
@@ -82,6 +78,12 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
 export function UsageTrendChart({ data, loading, timeRange }: Props) {
   const chartData = transform(data);
 
+  // 计算 Y 轴最大值，确保即使全 0 也有合理刻度
+  const maxVal = chartData.reduce((max, row) => {
+    return Math.max(max, row.input, row.output, row.cacheCreate, row.cacheRead);
+  }, 0);
+  const yDomain: [number, number] = [0, maxVal > 0 ? 'auto' as unknown as number : 100];
+
   return (
     <div className="rounded-2xl border border-border/50 bg-card p-6 shadow-sm">
       <h3 className="mb-5 text-lg font-semibold">趋势图</h3>
@@ -93,7 +95,7 @@ export function UsageTrendChart({ data, loading, timeRange }: Props) {
         <div className="flex h-[350px] items-center justify-center text-muted-foreground">暂无数据</div>
       ) : (
         <ResponsiveContainer width="100%" height={350}>
-          <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+          <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
             <defs>
               <linearGradient id="gInput" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25} />
@@ -122,6 +124,9 @@ export function UsageTrendChart({ data, loading, timeRange }: Props) {
             />
             <YAxis
               yAxisId="tokens"
+              width={60}
+              domain={yDomain}
+              allowDecimals={false}
               tickFormatter={(v: number) => fmtTokenK(v)}
               tick={{ fontSize: 12, fill: 'hsl(var(--color-muted-foreground))' }}
               axisLine={false}
