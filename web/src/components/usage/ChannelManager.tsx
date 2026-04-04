@@ -282,6 +282,8 @@ function ChannelDetailPanel({
   const [editWebsite, setEditWebsite] = useState(endpoint.website_url || '');
   const [editLogo, setEditLogo] = useState(endpoint.logo_url || '');
   const [editProxy, setEditProxy] = useState(endpoint.proxy_url || '');
+  const [editMaxFailures, setEditMaxFailures] = useState(endpoint.max_failures || 0);
+  const [editMaxRetries, setEditMaxRetries] = useState(endpoint.max_retries || 0);
   const [saving, setSaving] = useState(false);
   const [testingProxy, setTestingProxy] = useState(false);
 
@@ -352,6 +354,8 @@ function ChannelDetailPanel({
     setEditWebsite(endpoint.website_url || '');
     setEditLogo(endpoint.logo_url || '');
     setEditProxy(endpoint.proxy_url || '');
+    setEditMaxFailures(endpoint.max_failures || 0);
+    setEditMaxRetries(endpoint.max_retries || 0);
     setSearchKey('');
     setFilterStatus('all');
     setTestResults({});
@@ -389,6 +393,8 @@ function ChannelDetailPanel({
         website_url: editWebsite.trim(),
         logo_url: editLogo.trim(),
         proxy_url: editProxy.trim(),
+        max_failures: editMaxFailures,
+        max_retries: editMaxRetries,
       });
       setShowEdit(false);
       onRefresh();
@@ -702,7 +708,7 @@ function ChannelDetailPanel({
           </button>
           <button
             className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-            onClick={() => { setEditName(endpoint.name); setEditUrl(endpoint.base_url); setEditWebsite(endpoint.website_url || ''); setEditLogo(endpoint.logo_url || ''); setEditProxy(endpoint.proxy_url || ''); setShowEdit(true); }}
+            onClick={() => { setEditName(endpoint.name); setEditUrl(endpoint.base_url); setEditWebsite(endpoint.website_url || ''); setEditLogo(endpoint.logo_url || ''); setEditProxy(endpoint.proxy_url || ''); setEditMaxFailures(endpoint.max_failures || 0); setEditMaxRetries(endpoint.max_retries || 0); setShowEdit(true); }}
             title="编辑"
           >
             <Pencil className="h-4 w-4" />
@@ -1196,6 +1202,34 @@ function ChannelDetailPanel({
                   {testingProxy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
                   <span className="ml-1">测试</span>
                 </Button>
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  黑名单阈值
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="0 = 不限制"
+                  value={editMaxFailures || ''}
+                  onChange={e => setEditMaxFailures(parseInt(e.target.value) || 0)}
+                  className="flex-1 h-9 font-mono text-sm"
+                />
+                <span className="text-xs text-muted-foreground shrink-0 w-28">0 = 不限制</span>
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  最大重试
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="0 = 默认(3)"
+                  value={editMaxRetries || ''}
+                  onChange={e => setEditMaxRetries(parseInt(e.target.value) || 0)}
+                  className="flex-1 h-9 font-mono text-sm"
+                />
+                <span className="text-xs text-muted-foreground shrink-0 w-28">0 = 默认(3次)</span>
               </div>
             </div>
             <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border/60">

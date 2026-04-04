@@ -130,7 +130,7 @@ pub async fn handle_messages(
     // 对非流式请求：遇到可重试错误（5xx / 429 / 529 / 网络错误）时最多重试 2 次，
     //               每次重试选取新的 API Key，指数退避 500ms → 1000ms。
     // 对流式请求：不重试（流一旦开始无法回滚）。
-    let max_attempts = if is_stream { 1 } else { 3 };
+    let mut max_attempts = if is_stream { 1 } else { 3 };
     let backoff_base_ms: u64 = 500;
 
     let mut last_error: Option<ProxyError> = None;
@@ -167,13 +167,18 @@ pub async fn handle_messages(
         }
 
         // 每次尝试都选取新密钥（按请求模型筛选渠道）
-        let (key_id, api_key, upstream_base, channel_id, proxy_url, mapped_model) = state
+        let (key_id, api_key, upstream_base, channel_id, proxy_url, mapped_model, ep_max_failures, ep_max_retries) = state
             .key_pool
             .next_key(token_for_pool, Some(&actual_model))
             .await?;
 
         last_key_id = key_id.clone();
         last_channel_id = channel_id.clone();
+
+        // 首次选 key 时，应用端点自定义的 max_retries（非流式）
+        if attempt == 0 && !is_stream && ep_max_retries > 0 {
+            max_attempts = ep_max_retries as usize;
+        }
 
         // 应用模型映射：将请求中的模型名替换为映射后的模型名
         if let Some(ref mapped) = mapped_model {
@@ -223,7 +228,8 @@ pub async fn handle_messages(
                 if let Some(ref kid) = key_id {
                     let pool = state.key_pool.clone();
                     let kid = kid.clone();
-                    tokio::spawn(async move { pool.report_result(&kid, false, None).await });
+                    let mf = ep_max_failures;
+                    tokio::spawn(async move { pool.report_result(&kid, false, None, mf).await });
                 }
                 if let Some(ref t) = matched_token {
                     let pool = state.key_pool.clone();
@@ -257,8 +263,9 @@ pub async fn handle_messages(
                         let pool = state.key_pool.clone();
                         let kid = kid.clone();
                         let sc = status_code;
+                        let mf = ep_max_failures;
                         tokio::spawn(
-                            async move { pool.report_result(&kid, false, Some(sc)).await },
+                            async move { pool.report_result(&kid, false, Some(sc), mf).await },
                         );
                     }
                     if let Some(ref t) = matched_token {
@@ -411,7 +418,7 @@ pub async fn handle_messages(
     if let Some(ref kid) = last_key_id {
         let pool = state.key_pool.clone();
         let kid = kid.clone();
-        tokio::spawn(async move { pool.report_result(&kid, true, Some(200)).await });
+        tokio::spawn(async move { pool.report_result(&kid, true, Some(200), 0).await });
     }
     if let Some(ref t) = matched_token {
         let pool = state.key_pool.clone();
@@ -589,7 +596,7 @@ pub async fn handle_models(
     let token_for_pool = matched_token.as_deref().unwrap_or("");
 
     // 选取一个可用 key 获取上游 URL（模型列表请求不按模型筛选）
-    let (_key_id, api_key, upstream_base, _channel_id, _proxy_url, _mapped) =
+    let (_key_id, api_key, upstream_base, _channel_id, _proxy_url, _mapped, _mf, _mr) =
         state.key_pool.next_key(token_for_pool, None).await?;
 
     let models_url = format!("{}/v1/models", upstream_base.trim_end_matches('/'));

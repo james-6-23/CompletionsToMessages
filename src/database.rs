@@ -150,6 +150,10 @@ pub struct EndpointRow {
     pub models: Vec<String>,
     /// 模型映射：请求模型名 → 实际转发模型名
     pub model_mapping: std::collections::HashMap<String, String>,
+    /// 最大失败次数（0 = 不限制）
+    pub max_failures: u32,
+    /// 最大重试次数（0 = 使用默认值）
+    pub max_retries: u32,
     pub created_at: i64,
 }
 
@@ -179,6 +183,10 @@ pub struct ActiveKey {
     pub endpoint_models: Vec<String>,
     /// 模型映射：请求模型名 → 实际转发模型名
     pub model_mapping: std::collections::HashMap<String, String>,
+    /// 所属端点的最大失败次数阈值（0 = 不限制）
+    pub max_failures: u32,
+    /// 所属端点的最大重试次数（0 = 使用默认值）
+    pub max_retries: u32,
 }
 
 /// 访问密钥行（对外展示，token 脱敏）
@@ -408,6 +416,36 @@ impl Database {
                 )
                 .map_err(|e| format!("迁移 upstream_endpoints 添加 model_mapping 列失败: {e}"))?;
                 log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 model_mapping 列");
+            }
+        }
+
+        // 迁移：为 upstream_endpoints 添加 max_failures / max_retries 列
+        {
+            let cols: Vec<String> = conn
+                .prepare("PRAGMA table_info(upstream_endpoints)")
+                .and_then(|mut stmt| {
+                    let names: Vec<String> = stmt
+                        .query_map([], |row| row.get::<_, String>(1))
+                        .unwrap()
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    Ok(names)
+                })
+                .unwrap_or_default();
+
+            if !cols.contains(&"max_failures".to_string()) {
+                conn.execute_batch(
+                    "ALTER TABLE upstream_endpoints ADD COLUMN max_failures INTEGER NOT NULL DEFAULT 0;",
+                )
+                .map_err(|e| format!("迁移添加 max_failures 列失败: {e}"))?;
+                log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 max_failures 列");
+            }
+            if !cols.contains(&"max_retries".to_string()) {
+                conn.execute_batch(
+                    "ALTER TABLE upstream_endpoints ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 0;",
+                )
+                .map_err(|e| format!("迁移添加 max_retries 列失败: {e}"))?;
+                log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 max_retries 列");
             }
         }
 
@@ -1041,7 +1079,8 @@ impl Database {
             .prepare(
                 "SELECT e.id, e.name, e.base_url, e.is_active, e.created_at,
                     (SELECT COUNT(*) FROM api_keys k WHERE k.endpoint_id = e.id) as key_count,
-                    e.models, e.website_url, e.logo_url, e.proxy_url, e.model_mapping
+                    e.models, e.website_url, e.logo_url, e.proxy_url, e.model_mapping,
+                    e.max_failures, e.max_retries
             FROM upstream_endpoints e
             ORDER BY e.created_at ASC",
             )
@@ -1064,6 +1103,8 @@ impl Database {
                     key_count: row.get::<_, i64>(5)? as u64,
                     models,
                     model_mapping,
+                    max_failures: row.get::<_, i32>(11).unwrap_or(0) as u32,
+                    max_retries: row.get::<_, i32>(12).unwrap_or(0) as u32,
                     created_at: row.get(4)?,
                     website_url: row.get::<_, String>(7).unwrap_or_default(),
                     logo_url: row.get::<_, String>(8).unwrap_or_default(),
@@ -1108,6 +1149,8 @@ impl Database {
             key_count: 0,
             models: vec![],
             model_mapping: std::collections::HashMap::new(),
+            max_failures: 0,
+            max_retries: 0,
             created_at,
         })
     }
@@ -1193,6 +1236,22 @@ impl Database {
             params![json, id],
         )
         .map_err(|e| format!("更新端点模型映射失败: {e}"))?;
+        Ok(())
+    }
+
+    /// 更新端点限制参数（max_failures / max_retries）
+    pub fn update_endpoint_limits(
+        &self,
+        id: &str,
+        max_failures: u32,
+        max_retries: u32,
+    ) -> Result<(), String> {
+        let conn = self.writer.lock();
+        conn.execute(
+            "UPDATE upstream_endpoints SET max_failures = ?1, max_retries = ?2 WHERE id = ?3",
+            params![max_failures as i32, max_retries as i32, id],
+        )
+        .map_err(|e| format!("更新端点限制参数失败: {e}"))?;
         Ok(())
     }
 
@@ -1446,7 +1505,7 @@ impl Database {
         let conn = self.reader.get().lock();
         let mut stmt = conn
             .prepare(
-                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url, e.model_mapping
+                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url, e.model_mapping, e.max_failures, e.max_retries
             FROM api_keys k
             INNER JOIN upstream_endpoints e ON k.endpoint_id = e.id
             WHERE k.is_active = 1 AND e.is_active = 1
@@ -1472,6 +1531,8 @@ impl Database {
                     proxy_url: row.get::<_, String>(5).unwrap_or_default(),
                     endpoint_models,
                     model_mapping,
+                    max_failures: row.get::<_, i32>(7).unwrap_or(0) as u32,
+                    max_retries: row.get::<_, i32>(8).unwrap_or(0) as u32,
                 })
             })
             .map_err(|e| format!("查询活跃密钥失败: {e}"))?;
@@ -1753,7 +1814,7 @@ impl Database {
         let conn = self.reader.get().lock();
         let mut stmt = conn
             .prepare(
-                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url, e.model_mapping
+                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url, e.model_mapping, e.max_failures
             FROM api_keys k
             INNER JOIN upstream_endpoints e ON k.endpoint_id = e.id
             INNER JOIN access_token_channels atc ON atc.channel_id = e.id
@@ -1781,6 +1842,8 @@ impl Database {
                     proxy_url: row.get::<_, String>(5).unwrap_or_default(),
                     endpoint_models,
                     model_mapping,
+                    max_failures: row.get::<_, i32>(7).unwrap_or(0) as u32,
+                    max_retries: row.get::<_, i32>(8).unwrap_or(0) as u32,
                 })
             })
             .map_err(|e| format!("查询 token 关联活跃密钥失败: {e}"))?;

@@ -319,15 +319,21 @@ function AccessTokenCard({
         {/* 支持的模型 */}
         {token.channel_ids.length > 0 && (() => {
           const allModels = new Set<string>();
+          const mappedModels = new Set<string>();
           token.channel_ids.forEach(cid => {
             const ep = endpoints.find(e => e.id === cid);
-            if (ep) ep.models.forEach(m => allModels.add(m));
+            if (ep) {
+              ep.models.forEach(m => allModels.add(m));
+              if (ep.model_mapping) {
+                Object.keys(ep.model_mapping).forEach(m => mappedModels.add(m));
+              }
+            }
           });
           const hasUnrestricted = token.channel_ids.some(cid => {
             const ep = endpoints.find(e => e.id === cid);
-            return ep && ep.models.length === 0;
+            return ep && ep.models.length === 0 && (!ep.model_mapping || Object.keys(ep.model_mapping).length === 0);
           });
-          if (allModels.size === 0 && !hasUnrestricted) return null;
+          if (allModels.size === 0 && mappedModels.size === 0 && !hasUnrestricted) return null;
           return (
             <div className="flex items-start gap-2">
               <span className="text-xs text-muted-foreground shrink-0 pt-1">支持模型:</span>
@@ -339,6 +345,11 @@ function AccessTokenCard({
                 )}
                 {[...allModels].sort().map(m => (
                   <span key={m} className="inline-flex items-center px-2 py-0.5 rounded-md border border-border/50 bg-muted/40 text-xs font-mono font-medium text-foreground">
+                    {m}
+                  </span>
+                ))}
+                {[...mappedModels].sort().map(m => (
+                  <span key={`map-${m}`} className="inline-flex items-center px-2 py-0.5 rounded-md border border-blue-200 bg-blue-50/60 dark:border-blue-500/20 dark:bg-blue-500/[0.06] text-xs font-mono font-medium text-blue-700 dark:text-blue-300">
                     {m}
                   </span>
                 ))}

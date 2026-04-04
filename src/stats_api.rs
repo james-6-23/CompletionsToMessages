@@ -291,6 +291,10 @@ pub struct UpdateEndpointRequest {
     pub proxy_url: String,
     #[serde(default)]
     pub model_mapping: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
+    pub max_failures: Option<u32>,
+    #[serde(default)]
+    pub max_retries: Option<u32>,
 }
 
 /// 更新端点状态请求体
@@ -344,12 +348,21 @@ pub async fn update_endpoint(
     let logo = body.logo_url.trim().to_string();
     let proxy = normalize_proxy_url(&body.proxy_url);
     let mapping = body.model_mapping.clone();
+    let max_failures = body.max_failures;
+    let max_retries = body.max_retries;
     let db = Arc::clone(&state.db);
     let ep_id = id.clone();
     tokio::task::spawn_blocking(move || {
         db.update_endpoint(&ep_id, &name, &url, &website, &logo, &proxy)?;
         if let Some(m) = mapping {
             db.update_endpoint_model_mapping(&ep_id, &m)?;
+        }
+        if max_failures.is_some() || max_retries.is_some() {
+            db.update_endpoint_limits(
+                &ep_id,
+                max_failures.unwrap_or(0),
+                max_retries.unwrap_or(0),
+            )?;
         }
         Ok::<(), String>(())
     })

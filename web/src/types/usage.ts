@@ -88,6 +88,8 @@ export interface Endpoint {
   key_count: number;
   models: string[];
   model_mapping: Record<string, string>;
+  max_failures: number;
+  max_retries: number;
   created_at: number;
 }
 

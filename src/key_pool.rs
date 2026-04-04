@@ -64,7 +64,7 @@ impl KeyPool {
 
     /// 轮询选取下一个可用密钥（基于入站 token 过滤渠道，可按模型筛选）
     ///
-    /// 返回 `(key_id, api_key_value, upstream_base_url, endpoint_id, proxy_url, mapped_model)`：
+    /// 返回 `(key_id, api_key_value, upstream_base_url, endpoint_id, proxy_url, mapped_model, max_retries)`：
     /// - key_id 为 Some 时表示来自数据库，None 时表示来自配置 fallback
     /// - model 不为 None 时，优先选择明确支持该模型的端点密钥
     /// - mapped_model 不为 None 时表示需要将请求模型替换为映射后的模型
@@ -72,7 +72,7 @@ impl KeyPool {
         &self,
         inbound_token: &str,
         model: Option<&str>,
-    ) -> Result<(Option<String>, String, String, String, String, Option<String>), ProxyError> {
+    ) -> Result<(Option<String>, String, String, String, String, Option<String>, u32, u32), ProxyError> {
         let db = self.db.clone();
         let token = inbound_token.to_string();
         let keys = tokio::task::spawn_blocking(move || db.get_active_keys_for_token(&token))
@@ -85,7 +85,7 @@ impl KeyPool {
             if let Some(ref upstream) = self.config.upstream {
                 if let Some(ref key) = upstream.api_key {
                     if !key.is_empty() && !upstream.base_url.is_empty() {
-                        return Ok((None, key.clone(), upstream.base_url.clone(), String::new(), String::new(), None));
+                        return Ok((None, key.clone(), upstream.base_url.clone(), String::new(), String::new(), None, 0, 0));
                     }
                 }
             }
@@ -174,18 +174,21 @@ impl KeyPool {
             selected.endpoint_id.clone(),
             selected.proxy_url.clone(),
             mapped_model,
+            selected.max_failures,
+            selected.max_retries,
         ))
     }
 
     /// 上报密钥使用结果，更新统计和熔断器状态
     ///
     /// `status_code`: 上游 HTTP 状态码，None 表示网络错误（无响应）。
+    /// `max_failures`: 端点配置的最大失败阈值（0 = 不限制）。超过则永久禁用密钥。
     /// - 401：key 无效，直接标记为失效（数据库 is_active=0）
     /// - 402：余额不足，触发熔断
     /// - 429/529：限流/过载，触发熔断
     /// - 5xx：服务端错误，触发熔断
     /// - 其他 4xx：不触发熔断
-    pub async fn report_result(&self, key_id: &str, success: bool, status_code: Option<u16>) {
+    pub async fn report_result(&self, key_id: &str, success: bool, status_code: Option<u16>, max_failures: u32) {
         // 401 直接标记 key 失效
         if status_code == Some(401) {
             log::warn!(
@@ -233,9 +236,28 @@ impl KeyPool {
 
         let db = self.db.clone();
         let key_id = key_id.to_string();
+        let max_f = max_failures;
         let _ = tokio::task::spawn_blocking(move || {
             if let Err(e) = db.increment_key_stats(&key_id, success) {
                 log::warn!("[cc-proxy] 更新 key 统计失败: {e}");
+            }
+            // 黑名单阈值检查：失败次数超过端点配置的阈值时，永久禁用密钥
+            if !success && max_f > 0 {
+                if let Ok(keys) = db.list_api_keys(None) {
+                    if let Some(k) = keys.iter().find(|k| k.id == key_id) {
+                        if k.failed_requests >= max_f as u64 {
+                            log::warn!(
+                                "[cc-proxy] 密钥 {} 失败次数 ({}) 达到阈值 ({})，标记为失效",
+                                &key_id[..key_id.len().min(8)],
+                                k.failed_requests,
+                                max_f
+                            );
+                            if let Err(e) = db.update_api_key_status(&key_id, false) {
+                                log::warn!("[cc-proxy] 标记密钥失效失败: {e}");
+                            }
+                        }
+                    }
+                }
             }
         })
         .await;
