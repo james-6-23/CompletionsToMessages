@@ -154,6 +154,8 @@ pub struct EndpointRow {
     pub max_failures: u32,
     /// 最大重试次数（0 = 使用默认值）
     pub max_retries: u32,
+    /// 是否剥离 tools 字段（不兼容 function calling 的上游）
+    pub strip_tools: bool,
     pub created_at: i64,
 }
 
@@ -187,6 +189,8 @@ pub struct ActiveKey {
     pub max_failures: u32,
     /// 所属端点的最大重试次数（0 = 使用默认值）
     pub max_retries: u32,
+    /// 是否剥离 tools 字段
+    pub strip_tools: bool,
 }
 
 /// 访问密钥行（对外展示，token 脱敏）
@@ -446,6 +450,13 @@ impl Database {
                 )
                 .map_err(|e| format!("迁移添加 max_retries 列失败: {e}"))?;
                 log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 max_retries 列");
+            }
+            if !cols.contains(&"strip_tools".to_string()) {
+                conn.execute_batch(
+                    "ALTER TABLE upstream_endpoints ADD COLUMN strip_tools INTEGER NOT NULL DEFAULT 0;",
+                )
+                .map_err(|e| format!("迁移添加 strip_tools 列失败: {e}"))?;
+                log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 strip_tools 列");
             }
         }
 
@@ -1080,7 +1091,7 @@ impl Database {
                 "SELECT e.id, e.name, e.base_url, e.is_active, e.created_at,
                     (SELECT COUNT(*) FROM api_keys k WHERE k.endpoint_id = e.id) as key_count,
                     e.models, e.website_url, e.logo_url, e.proxy_url, e.model_mapping,
-                    e.max_failures, e.max_retries
+                    e.max_failures, e.max_retries, e.strip_tools
             FROM upstream_endpoints e
             ORDER BY e.created_at ASC",
             )
@@ -1105,6 +1116,7 @@ impl Database {
                     model_mapping,
                     max_failures: row.get::<_, i32>(11).unwrap_or(0) as u32,
                     max_retries: row.get::<_, i32>(12).unwrap_or(0) as u32,
+                    strip_tools: row.get::<_, i32>(13).unwrap_or(0) != 0,
                     created_at: row.get(4)?,
                     website_url: row.get::<_, String>(7).unwrap_or_default(),
                     logo_url: row.get::<_, String>(8).unwrap_or_default(),
@@ -1151,6 +1163,7 @@ impl Database {
             model_mapping: std::collections::HashMap::new(),
             max_failures: 0,
             max_retries: 0,
+            strip_tools: false,
             created_at,
         })
     }
@@ -1239,17 +1252,18 @@ impl Database {
         Ok(())
     }
 
-    /// 更新端点限制参数（max_failures / max_retries）
+    /// 更新端点限制参数（max_failures / max_retries / strip_tools）
     pub fn update_endpoint_limits(
         &self,
         id: &str,
         max_failures: u32,
         max_retries: u32,
+        strip_tools: bool,
     ) -> Result<(), String> {
         let conn = self.writer.lock();
         conn.execute(
-            "UPDATE upstream_endpoints SET max_failures = ?1, max_retries = ?2 WHERE id = ?3",
-            params![max_failures as i32, max_retries as i32, id],
+            "UPDATE upstream_endpoints SET max_failures = ?1, max_retries = ?2, strip_tools = ?3 WHERE id = ?4",
+            params![max_failures as i32, max_retries as i32, strip_tools as i32, id],
         )
         .map_err(|e| format!("更新端点限制参数失败: {e}"))?;
         Ok(())
@@ -1505,7 +1519,7 @@ impl Database {
         let conn = self.reader.get().lock();
         let mut stmt = conn
             .prepare(
-                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url, e.model_mapping, e.max_failures, e.max_retries
+                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url, e.model_mapping, e.max_failures, e.max_retries, e.strip_tools
             FROM api_keys k
             INNER JOIN upstream_endpoints e ON k.endpoint_id = e.id
             WHERE k.is_active = 1 AND e.is_active = 1
@@ -1533,6 +1547,7 @@ impl Database {
                     model_mapping,
                     max_failures: row.get::<_, i32>(7).unwrap_or(0) as u32,
                     max_retries: row.get::<_, i32>(8).unwrap_or(0) as u32,
+                    strip_tools: row.get::<_, i32>(9).unwrap_or(0) != 0,
                 })
             })
             .map_err(|e| format!("查询活跃密钥失败: {e}"))?;
@@ -1814,7 +1829,7 @@ impl Database {
         let conn = self.reader.get().lock();
         let mut stmt = conn
             .prepare(
-                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url, e.model_mapping, e.max_failures
+                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models, e.proxy_url, e.model_mapping, e.max_failures, e.max_retries, e.strip_tools
             FROM api_keys k
             INNER JOIN upstream_endpoints e ON k.endpoint_id = e.id
             INNER JOIN access_token_channels atc ON atc.channel_id = e.id
@@ -1844,6 +1859,7 @@ impl Database {
                     model_mapping,
                     max_failures: row.get::<_, i32>(7).unwrap_or(0) as u32,
                     max_retries: row.get::<_, i32>(8).unwrap_or(0) as u32,
+                    strip_tools: row.get::<_, i32>(9).unwrap_or(0) != 0,
                 })
             })
             .map_err(|e| format!("查询 token 关联活跃密钥失败: {e}"))?;

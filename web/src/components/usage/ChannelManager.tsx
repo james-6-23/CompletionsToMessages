@@ -284,6 +284,7 @@ function ChannelDetailPanel({
   const [editProxy, setEditProxy] = useState(endpoint.proxy_url || '');
   const [editMaxFailures, setEditMaxFailures] = useState(endpoint.max_failures || 0);
   const [editMaxRetries, setEditMaxRetries] = useState(endpoint.max_retries || 0);
+  const [editStripTools, setEditStripTools] = useState(endpoint.strip_tools || false);
   const [saving, setSaving] = useState(false);
   const [testingProxy, setTestingProxy] = useState(false);
 
@@ -356,6 +357,7 @@ function ChannelDetailPanel({
     setEditProxy(endpoint.proxy_url || '');
     setEditMaxFailures(endpoint.max_failures || 0);
     setEditMaxRetries(endpoint.max_retries || 0);
+    setEditStripTools(endpoint.strip_tools || false);
     setSearchKey('');
     setFilterStatus('all');
     setTestResults({});
@@ -395,6 +397,7 @@ function ChannelDetailPanel({
         proxy_url: editProxy.trim(),
         max_failures: editMaxFailures,
         max_retries: editMaxRetries,
+        strip_tools: editStripTools,
       });
       setShowEdit(false);
       onRefresh();
@@ -708,7 +711,7 @@ function ChannelDetailPanel({
           </button>
           <button
             className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-            onClick={() => { setEditName(endpoint.name); setEditUrl(endpoint.base_url); setEditWebsite(endpoint.website_url || ''); setEditLogo(endpoint.logo_url || ''); setEditProxy(endpoint.proxy_url || ''); setEditMaxFailures(endpoint.max_failures || 0); setEditMaxRetries(endpoint.max_retries || 0); setShowEdit(true); }}
+            onClick={() => { setEditName(endpoint.name); setEditUrl(endpoint.base_url); setEditWebsite(endpoint.website_url || ''); setEditLogo(endpoint.logo_url || ''); setEditProxy(endpoint.proxy_url || ''); setEditMaxFailures(endpoint.max_failures || 0); setEditMaxRetries(endpoint.max_retries || 0); setEditStripTools(endpoint.strip_tools || false); setShowEdit(true); }}
             title="编辑"
           >
             <Pencil className="h-4 w-4" />
@@ -1230,6 +1233,19 @@ function ChannelDetailPanel({
                   className="flex-1 h-9 font-mono text-sm"
                 />
                 <span className="text-xs text-muted-foreground shrink-0 w-28">0 = 默认(3次)</span>
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  剥离 Tools
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setEditStripTools(!editStripTools)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${editStripTools ? 'bg-blue-500' : 'bg-muted'}`}
+                >
+                  <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${editStripTools ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+                <span className="text-xs text-muted-foreground">不兼容 function calling 的上游开启</span>
               </div>
             </div>
             <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border/60">

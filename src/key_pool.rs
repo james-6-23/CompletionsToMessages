@@ -72,7 +72,7 @@ impl KeyPool {
         &self,
         inbound_token: &str,
         model: Option<&str>,
-    ) -> Result<(Option<String>, String, String, String, String, Option<String>, u32, u32), ProxyError> {
+    ) -> Result<(Option<String>, String, String, String, String, Option<String>, u32, u32, bool), ProxyError> {
         let db = self.db.clone();
         let token = inbound_token.to_string();
         let keys = tokio::task::spawn_blocking(move || db.get_active_keys_for_token(&token))
@@ -85,7 +85,7 @@ impl KeyPool {
             if let Some(ref upstream) = self.config.upstream {
                 if let Some(ref key) = upstream.api_key {
                     if !key.is_empty() && !upstream.base_url.is_empty() {
-                        return Ok((None, key.clone(), upstream.base_url.clone(), String::new(), String::new(), None, 0, 0));
+                        return Ok((None, key.clone(), upstream.base_url.clone(), String::new(), String::new(), None, 0, 0, false));
                     }
                 }
             }
@@ -176,6 +176,7 @@ impl KeyPool {
             mapped_model,
             selected.max_failures,
             selected.max_retries,
+            selected.strip_tools,
         ))
     }
 

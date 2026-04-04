@@ -90,6 +90,7 @@ export interface Endpoint {
   model_mapping: Record<string, string>;
   max_failures: number;
   max_retries: number;
+  strip_tools: boolean;
   created_at: number;
 }
 

@@ -295,6 +295,8 @@ pub struct UpdateEndpointRequest {
     pub max_failures: Option<u32>,
     #[serde(default)]
     pub max_retries: Option<u32>,
+    #[serde(default)]
+    pub strip_tools: Option<bool>,
 }
 
 /// 更新端点状态请求体
@@ -350,6 +352,7 @@ pub async fn update_endpoint(
     let mapping = body.model_mapping.clone();
     let max_failures = body.max_failures;
     let max_retries = body.max_retries;
+    let strip_tools = body.strip_tools;
     let db = Arc::clone(&state.db);
     let ep_id = id.clone();
     tokio::task::spawn_blocking(move || {
@@ -357,11 +360,12 @@ pub async fn update_endpoint(
         if let Some(m) = mapping {
             db.update_endpoint_model_mapping(&ep_id, &m)?;
         }
-        if max_failures.is_some() || max_retries.is_some() {
+        if max_failures.is_some() || max_retries.is_some() || strip_tools.is_some() {
             db.update_endpoint_limits(
                 &ep_id,
                 max_failures.unwrap_or(0),
                 max_retries.unwrap_or(0),
+                strip_tools.unwrap_or(false),
             )?;
         }
         Ok::<(), String>(())

@@ -167,7 +167,7 @@ pub async fn handle_messages(
         }
 
         // 每次尝试都选取新密钥（按请求模型筛选渠道）
-        let (key_id, api_key, upstream_base, channel_id, proxy_url, mapped_model, ep_max_failures, ep_max_retries) = state
+        let (key_id, api_key, upstream_base, channel_id, proxy_url, mapped_model, ep_max_failures, ep_max_retries, ep_strip_tools) = state
             .key_pool
             .next_key(token_for_pool, Some(&actual_model))
             .await?;
@@ -183,6 +183,14 @@ pub async fn handle_messages(
         // 应用模型映射：将请求中的模型名替换为映射后的模型名
         if let Some(ref mapped) = mapped_model {
             openai_body["model"] = json!(mapped);
+        }
+
+        // 剥离 tools：不兼容 function calling 的上游
+        if ep_strip_tools {
+            if let Some(obj) = openai_body.as_object_mut() {
+                obj.remove("tools");
+                obj.remove("tool_choice");
+            }
         }
 
         let upstream_url = format!(
@@ -596,7 +604,7 @@ pub async fn handle_models(
     let token_for_pool = matched_token.as_deref().unwrap_or("");
 
     // 选取一个可用 key 获取上游 URL（模型列表请求不按模型筛选）
-    let (_key_id, api_key, upstream_base, _channel_id, _proxy_url, _mapped, _mf, _mr) =
+    let (_key_id, api_key, upstream_base, _channel_id, _proxy_url, _mapped, _mf, _mr, _st) =
         state.key_pool.next_key(token_for_pool, None).await?;
 
     let models_url = format!("{}/v1/models", upstream_base.trim_end_matches('/'));
