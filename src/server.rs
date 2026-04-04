@@ -131,7 +131,7 @@ pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> 
             "/endpoints/:id/status",
             put(stats_api::update_endpoint_status),
         )
-        .route("/endpoints/:id/models", get(stats_api::get_endpoint_models))
+        .route("/endpoints/:id/models", get(stats_api::get_endpoint_models).put(stats_api::update_endpoint_models))
         .route(
             "/endpoints/:id/sync-models",
             post(stats_api::sync_endpoint_models),

@@ -135,6 +135,7 @@ export const api = {
   deleteEndpoint: (id: string) => deleteJson<{ ok: boolean }>(`/api/endpoints/${id}`),
   toggleEndpoint: (id: string, is_active: boolean) => putJson<{ ok: boolean }>(`/api/endpoints/${id}/status`, { is_active }),
   getEndpointModels: (id: string) => fetchJson<{ data: { id: string }[] }>(`/api/endpoints/${id}/models`),
+  updateEndpointModels: (id: string, models: string[]) => putJson<{ ok: boolean; models: string[]; count: number }>(`/api/endpoints/${id}/models`, { models }),
   syncEndpointModels: (id: string) => postJson<{ ok: boolean; models: string[]; count: number }>(`/api/endpoints/${id}/sync-models`, {}),
   testProxy: (proxy_url: string) => postJson<{ ok: boolean; latency_ms: number; location?: string; ip?: string; error?: string }>('/api/endpoints/test-proxy', { proxy_url }),
 

@@ -930,6 +930,38 @@ pub async fn sync_endpoint_models(
     })))
 }
 
+/// PUT /api/endpoints/:id/models — 手动设置端点支持的模型列表
+pub async fn update_endpoint_models(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ProxyError> {
+    let models: Vec<String> = body
+        .get("models")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let db = Arc::clone(&state.db);
+    let ep_id = id.clone();
+    let models_clone = models.clone();
+    tokio::task::spawn_blocking(move || db.update_endpoint_models(&ep_id, &models_clone))
+        .await
+        .map_err(|e| ProxyError::Internal(format!("更新模型列表失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "models": models,
+        "count": models.len(),
+    })))
+}
+
 /// 测试密钥请求体
 #[derive(Debug, Deserialize)]
 pub struct TestKeyRequest {

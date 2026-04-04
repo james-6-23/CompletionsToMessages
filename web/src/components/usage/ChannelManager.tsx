@@ -341,6 +341,7 @@ function ChannelDetailPanel({
   const [newMapFrom, setNewMapFrom] = useState('');
   const [newMapTo, setNewMapTo] = useState('');
   const [savingMapping, setSavingMapping] = useState(false);
+  const [customModelInput, setCustomModelInput] = useState('');
 
   // endpoint 变化时同步映射
   useEffect(() => {
@@ -794,14 +795,56 @@ function ChannelDetailPanel({
               {endpoint.models.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
                   {endpoint.models.map(m => (
-                    <span key={m} className="inline-flex items-center px-2.5 py-1 rounded-lg border border-border/50 bg-muted/40 text-xs font-semibold font-mono text-foreground">
+                    <span key={m} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border/50 bg-muted/40 text-xs font-semibold font-mono text-foreground group">
                       {m}
+                      <button
+                        className="text-red-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="移除"
+                        onClick={async () => {
+                          const next = endpoint.models.filter(x => x !== m);
+                          await api.updateEndpointModels(endpoint.id, next);
+                          onRefresh();
+                        }}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
                     </span>
                   ))}
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground">未同步（不限模型，所有请求都会路由到此渠道）</p>
               )}
+              {/* 手动添加模型 */}
+              <div className="flex items-center gap-2 pt-0.5">
+                <Input
+                  placeholder="手动输入模型名"
+                  value={customModelInput}
+                  onChange={e => setCustomModelInput(e.target.value)}
+                  onKeyDown={async e => {
+                    if (e.key === 'Enter' && customModelInput.trim()) {
+                      const next = [...new Set([...endpoint.models, customModelInput.trim()])];
+                      setCustomModelInput('');
+                      await api.updateEndpointModels(endpoint.id, next);
+                      onRefresh();
+                    }
+                  }}
+                  className="h-7 text-xs font-mono w-52"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2.5 text-xs gap-1"
+                  disabled={!customModelInput.trim()}
+                  onClick={async () => {
+                    const next = [...new Set([...endpoint.models, customModelInput.trim()])];
+                    setCustomModelInput('');
+                    await api.updateEndpointModels(endpoint.id, next);
+                    onRefresh();
+                  }}
+                >
+                  <Plus className="h-3 w-3" /> 添加
+                </Button>
+              </div>
             </div>
 
             {/* 测试模型选择 */}
@@ -871,19 +914,25 @@ function ChannelDetailPanel({
                   className="h-7 text-xs font-mono w-48"
                 />
                 <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <Select value={newMapTo || undefined} onValueChange={v => setNewMapTo(v)} onOpenChange={o => { if (o && models.length === 0) fetchModels(); }}>
-                  <SelectTrigger className="w-48 h-7 text-xs font-mono font-semibold">
-                    <SelectValue placeholder="选择实际模型" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[280px]">
-                    {(endpoint.models.length > 0 ? endpoint.models : models).map(m => (
-                      <SelectItem key={m} value={m} className="text-xs font-mono font-medium">{m}</SelectItem>
-                    ))}
-                    {endpoint.models.length === 0 && models.length === 0 && (
-                      <div className="px-2 py-1.5 text-xs text-muted-foreground">请先同步模型列表</div>
-                    )}
-                  </SelectContent>
-                </Select>
+                {(endpoint.models.length > 0 || models.length > 0) ? (
+                  <Select value={newMapTo || undefined} onValueChange={v => setNewMapTo(v)} onOpenChange={o => { if (o && models.length === 0 && endpoint.models.length === 0) fetchModels(); }}>
+                    <SelectTrigger className="w-48 h-7 text-xs font-mono font-semibold">
+                      <SelectValue placeholder="选择实际模型" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[280px]">
+                      {(endpoint.models.length > 0 ? endpoint.models : models).map(m => (
+                        <SelectItem key={m} value={m} className="text-xs font-mono font-medium">{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    placeholder="实际模型名"
+                    value={newMapTo}
+                    onChange={e => setNewMapTo(e.target.value)}
+                    className="h-7 text-xs font-mono w-48"
+                  />
+                )}
                 <Button
                   size="sm"
                   variant="outline"
