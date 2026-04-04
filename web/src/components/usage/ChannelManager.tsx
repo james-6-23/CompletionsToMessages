@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { copyToClipboard } from '@/lib/utils';
 import { toast } from '@/components/Toast';
@@ -368,18 +369,25 @@ function EndpointCard({
             {/* 测试模型选择 */}
             <div className="flex items-center gap-3">
               <span className="text-xs font-semibold text-muted-foreground shrink-0">测试模型:</span>
-              <select
-                className="h-8 rounded-lg border border-input bg-background px-2 text-xs transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/10 focus:outline-none min-w-[200px]"
-                value={testModel}
-                onChange={e => setTestModel(e.target.value)}
-                onFocus={fetchModels}
+              <Select
+                value={testModel || undefined}
+                onValueChange={setTestModel}
+                onOpenChange={(open) => { if (open && models.length === 0) fetchModels(); }}
               >
-                {models.length === 0 && !loadingModels && <option value="">点击加载模型列表</option>}
-                {loadingModels && <option value="">加载中...</option>}
-                {models.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
+                <SelectTrigger className="w-[280px] h-8 text-xs">
+                  <SelectValue placeholder={loadingModels ? '加载中...' : '选择模型'} />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  {models.map(m => (
+                    <SelectItem key={m} value={m} className="text-xs font-mono">{m}</SelectItem>
+                  ))}
+                  {models.length === 0 && !loadingModels && (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">暂无模型，请先添加密钥</div>
+                  )}
+                </SelectContent>
+              </Select>
               <button
-                onClick={fetchModels}
+                onClick={() => { setModels([]); fetchModels(); }}
                 className="text-xs text-primary hover:underline"
               >
                 {loadingModels ? '加载中...' : '刷新'}
