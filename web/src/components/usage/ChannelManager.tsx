@@ -112,7 +112,7 @@ function KeyCard({
   onToggleReveal: () => void;
 }) {
   return (
-    <div className={`rounded-2xl border p-4 space-y-3 transition-all duration-200 hover:shadow-sm ${
+    <div className={`rounded-xl border p-3 space-y-2 transition-all duration-200 hover:shadow-sm ${
       apiKey.is_active
         ? 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-500/20 dark:bg-emerald-500/[0.04]'
         : 'border-red-200 bg-red-50/50 dark:border-red-500/20 dark:bg-red-500/[0.04]'
@@ -642,7 +642,7 @@ function ChannelDetailPanel({
             </p>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {filteredKeys.map(key => (
               <KeyCard
                 key={key.id}

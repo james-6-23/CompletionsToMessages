@@ -10,6 +10,64 @@ import type { TimeRange, Endpoint } from '@/types/usage';
 import { fmtInt, fmtUsd, fmtTimestamp, fmtDuration } from './format';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
+/* ------------------------------------------------------------------ */
+/*  模型徽章：Claude 系列使用品牌配色 + 网站 logo 图标                  */
+/* ------------------------------------------------------------------ */
+
+// 内联 favicon.svg 路径（闪电形），缩小后用作图标
+function ClaudeIcon({ color }: { color: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="12"
+      height="12"
+      viewBox="0 0 48 46"
+      fill="none"
+      className="shrink-0"
+      aria-hidden="true"
+    >
+      <path
+        fill={color}
+        d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"
+      />
+    </svg>
+  );
+}
+
+// Claude 模型名 → { 颜色方案, icon 颜色 }
+const CLAUDE_MODEL_STYLES: { pattern: RegExp; bg: string; text: string; border: string; iconColor: string }[] = [
+  // Opus — 深紫
+  { pattern: /opus/i, bg: 'bg-purple-500/10', text: 'text-purple-600 dark:text-purple-400', border: 'border-purple-500/20', iconColor: '#9333ea' },
+  // Sonnet — 蓝
+  { pattern: /sonnet/i, bg: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/20', iconColor: '#2563eb' },
+  // Haiku — 青
+  { pattern: /haiku/i, bg: 'bg-cyan-500/10', text: 'text-cyan-600 dark:text-cyan-400', border: 'border-cyan-500/20', iconColor: '#0891b2' },
+  // 通用 Claude（兜底）— 品牌紫
+  { pattern: /claude/i, bg: 'bg-violet-500/10', text: 'text-violet-600 dark:text-violet-400', border: 'border-violet-500/20', iconColor: '#863bff' },
+];
+
+function ModelBadge({ model }: { model: string }) {
+  if (!model) return <span className="text-muted-foreground">-</span>;
+
+  const style = CLAUDE_MODEL_STYLES.find(s => s.pattern.test(model));
+
+  if (style) {
+    return (
+      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-sm font-semibold font-mono ${style.bg} ${style.text} ${style.border}`}>
+        <ClaudeIcon color={style.iconColor} />
+        {model}
+      </span>
+    );
+  }
+
+  // 非 Claude 模型
+  return (
+    <span className="inline-flex items-center font-mono text-sm font-semibold text-foreground">
+      {model}
+    </span>
+  );
+}
+
 interface Props {
   timeRange: TimeRange;
   refreshMs: number;
@@ -154,7 +212,7 @@ export function RequestLogTable({ timeRange, refreshMs, endpoints }: Props) {
                       )}
                     </span>
                   </TableCell>
-                  <TableCell className="font-mono text-xs">{log.model}</TableCell>
+                  <TableCell><ModelBadge model={log.model} /></TableCell>
                   <TableCell className="text-right tabular-nums text-sm">{fmtInt(log.input_tokens)}</TableCell>
                   <TableCell className="text-right tabular-nums text-sm">{fmtInt(log.output_tokens)}</TableCell>
                   <TableCell className="text-right tabular-nums text-sm">{fmtInt(log.cache_read_tokens)}</TableCell>
