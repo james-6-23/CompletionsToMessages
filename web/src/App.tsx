@@ -122,7 +122,7 @@ export default function App() {
         {page === 'logs' && <RequestLogPage />}
         {page === 'models' && <ModelStatsPage />}
         {page === 'channels' && (
-          <div style={{ height: 'calc(100vh - 120px)' }}>
+          <div style={{ height: 'calc(100vh - 200px)', minHeight: '500px' }}>
             <ChannelManager />
           </div>
         )}

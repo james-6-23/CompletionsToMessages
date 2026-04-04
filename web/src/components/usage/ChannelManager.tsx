@@ -8,7 +8,7 @@ import { toast } from '@/components/Toast';
 import type { ApiKey, Endpoint } from '@/types/usage';
 import {
   Plus, Trash2, Eye, EyeOff, Copy, FlaskConical, Check, X,
-  Loader2, KeyRound, Save, Globe, Pencil,
+  Loader2, KeyRound, Globe, Pencil,
   Search, MoreHorizontal, MinusCircle,
 } from 'lucide-react';
 import { fmtTimestamp } from './format';
@@ -37,6 +37,18 @@ function getAvatarLetter(name: string): string {
 /*  左侧渠道列表项                                                      */
 /* ------------------------------------------------------------------ */
 
+/* 从 website_url 提取 favicon URL（Google S2 服务） */
+function getFaviconUrl(websiteUrl: string): string | null {
+  if (!websiteUrl) return null;
+  try {
+    const url = websiteUrl.startsWith('http') ? websiteUrl : `https://${websiteUrl}`;
+    const origin = new URL(url).origin;
+    return `https://www.google.com/s2/favicons?domain=${origin}&sz=32`;
+  } catch {
+    return null;
+  }
+}
+
 function ChannelListItem({
   endpoint,
   isSelected,
@@ -49,6 +61,8 @@ function ChannelListItem({
   const color = getAvatarColor(endpoint.name);
   const letter = getAvatarLetter(endpoint.name);
   const tag = '#' + endpoint.name.toLowerCase().replace(/\s+/g, '_');
+  const faviconUrl = getFaviconUrl(endpoint.website_url);
+  const [faviconOk, setFaviconOk] = useState(!!faviconUrl);
 
   return (
     <div
@@ -59,9 +73,18 @@ function ChannelListItem({
       }`}
       onClick={onClick}
     >
-      {/* 头像 */}
-      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white font-bold text-sm ${color}`}>
-        {letter}
+      {/* 头像：有 favicon 则显示网站图标，否则显示字母 */}
+      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl overflow-hidden ${faviconUrl && faviconOk ? 'bg-white border border-border/30' : `${color} text-white font-bold text-sm`}`}>
+        {faviconUrl && faviconOk ? (
+          <img
+            src={faviconUrl}
+            alt=""
+            className="h-5 w-5 object-contain"
+            onError={() => setFaviconOk(false)}
+          />
+        ) : (
+          letter
+        )}
       </div>
 
       {/* 名称 + 标签 */}
@@ -249,10 +272,11 @@ function ChannelDetailPanel({
   keys: ApiKey[];
   onRefresh: () => void;
 }) {
-  /* 编辑模式 */
-  const [editing, setEditing] = useState(false);
+  /* 编辑弹窗 */
+  const [showEdit, setShowEdit] = useState(false);
   const [editName, setEditName] = useState(endpoint.name);
   const [editUrl, setEditUrl] = useState(endpoint.base_url);
+  const [editWebsite, setEditWebsite] = useState(endpoint.website_url || '');
   const [saving, setSaving] = useState(false);
 
   /* 添加密钥弹窗 */
@@ -279,9 +303,10 @@ function ChannelDetailPanel({
 
   /* 当 endpoint 切换时，重置状态 */
   useEffect(() => {
-    setEditing(false);
+    setShowEdit(false);
     setEditName(endpoint.name);
     setEditUrl(endpoint.base_url);
+    setEditWebsite(endpoint.website_url || '');
     setSearchKey('');
     setFilterStatus('all');
     setTestResults({});
@@ -309,8 +334,12 @@ function ChannelDetailPanel({
     if (!editName.trim() || !editUrl.trim()) return;
     setSaving(true);
     try {
-      await api.updateEndpoint(endpoint.id, { name: editName.trim(), base_url: editUrl.trim() });
-      setEditing(false);
+      await api.updateEndpoint(endpoint.id, {
+        name: editName.trim(),
+        base_url: editUrl.trim(),
+        website_url: editWebsite.trim(),
+      });
+      setShowEdit(false);
       onRefresh();
     } catch (e) {
       console.error('保存端点失败:', e);
@@ -442,66 +471,50 @@ function ChannelDetailPanel({
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
       {/* 顶部：标题 + URL + 操作图标 */}
-      <div className="flex items-start justify-between gap-4 p-6 border-b border-border/50">
-        <div className="flex-1 min-w-0">
-          {editing ? (
-            <div className="space-y-3">
-              <div className="flex gap-2 flex-wrap">
-                <Input
-                  value={editName}
-                  onChange={e => setEditName(e.target.value)}
-                  className="w-48 h-8 text-sm"
-                  placeholder="渠道名称"
-                />
-                <Input
-                  value={editUrl}
-                  onChange={e => setEditUrl(e.target.value)}
-                  className="flex-1 min-w-48 h-8 text-sm"
-                  placeholder="https://api.example.com"
-                />
-                <Button size="sm" className="h-8" onClick={handleSaveEndpoint} disabled={saving}>
-                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                  保存
-                </Button>
-                <Button size="sm" variant="outline" className="h-8" onClick={() => setEditing(false)}>取消</Button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-2xl font-bold tracking-tight">{endpoint.name}</h2>
-              <span className="text-sm text-muted-foreground bg-muted/60 px-3 py-1 rounded-lg font-mono truncate max-w-sm">
-                {endpoint.base_url}
-              </span>
-            </div>
+      <div className="flex items-center justify-between gap-4 p-6 border-b border-border/50">
+        <div className="flex items-center gap-3 flex-wrap min-w-0">
+          <h2 className="text-2xl font-bold tracking-tight">{endpoint.name}</h2>
+          <span className="text-sm text-muted-foreground bg-muted/60 px-3 py-1 rounded-lg font-mono truncate max-w-sm">
+            {endpoint.base_url}
+          </span>
+          {endpoint.website_url && (
+            <a
+              href={endpoint.website_url.startsWith('http') ? endpoint.website_url : `https://${endpoint.website_url}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              title="官网"
+            >
+              <Globe className="h-3.5 w-3.5" />
+              官网
+            </a>
           )}
         </div>
 
         {/* 操作图标 */}
-        {!editing && (
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-              onClick={() => { copyToClipboard(endpoint.base_url); toast('已复制 URL', 'success'); }}
-              title="复制 URL"
-            >
-              <Copy className="h-4 w-4" />
-            </button>
-            <button
-              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-              onClick={() => { setEditName(endpoint.name); setEditUrl(endpoint.base_url); setEditing(true); }}
-              title="编辑"
-            >
-              <Pencil className="h-4 w-4" />
-            </button>
-            <button
-              className="p-2 rounded-lg text-red-400 hover:text-red-500 hover:bg-red-500/10 transition-colors"
-              onClick={handleDeleteEndpoint}
-              title="删除"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            onClick={() => { copyToClipboard(endpoint.base_url); toast('已复制 URL', 'success'); }}
+            title="复制 URL"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+          <button
+            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            onClick={() => { setEditName(endpoint.name); setEditUrl(endpoint.base_url); setEditWebsite(endpoint.website_url || ''); setShowEdit(true); }}
+            title="编辑"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+          <button
+            className="p-2 rounded-lg text-red-400 hover:text-red-500 hover:bg-red-500/10 transition-colors"
+            onClick={handleDeleteEndpoint}
+            title="删除"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* 统计卡片行 */}
@@ -702,6 +715,87 @@ function ChannelDetailPanel({
           </div>
         </div>
       )}
+
+      {/* 编辑端点弹窗 */}
+      {showEdit && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onClick={() => setShowEdit(false)}
+        >
+          <div
+            className="w-full max-w-lg mx-4 rounded-2xl border border-border bg-card shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border/60">
+              <h3 className="text-base font-semibold">编辑渠道</h3>
+              <button onClick={() => setShowEdit(false)} className="flex items-center justify-center w-7 h-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  渠道名称 <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  placeholder="例如: OpenAI 主力"
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  className="flex-1 h-9"
+                />
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  上游地址 <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  placeholder="https://api.example.com"
+                  value={editUrl}
+                  onChange={e => setEditUrl(e.target.value)}
+                  className="flex-1 h-9 font-mono text-sm"
+                />
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  官网地址
+                </label>
+                <Input
+                  placeholder="https://example.com"
+                  value={editWebsite}
+                  onChange={e => setEditWebsite(e.target.value)}
+                  className="flex-1 h-9 font-mono text-sm"
+                />
+              </div>
+              {editWebsite && (
+                <div className="flex items-center gap-4">
+                  <div className="w-20 shrink-0" />
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>图标预览：</span>
+                    {(() => {
+                      const furl = getFaviconUrl(editWebsite);
+                      return furl ? (
+                        <img src={furl} alt="" className="h-5 w-5 object-contain rounded" />
+                      ) : null;
+                    })()}
+                    <span className="text-muted-foreground/60">（保存后显示在渠道列表）</span>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border/60">
+              <Button variant="outline" onClick={() => setShowEdit(false)} className="px-5">取消</Button>
+              <Button
+                onClick={handleSaveEndpoint}
+                disabled={saving || !editName.trim() || !editUrl.trim()}
+                className="px-5 bg-blue-500 hover:bg-blue-600 text-white"
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                保存
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -713,6 +807,7 @@ function ChannelDetailPanel({
 function AddEndpointModal({ onAdded, onCancel }: { onAdded: () => void; onCancel: () => void }) {
   const [name, setName] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
+  const [websiteUrl, setWebsiteUrl] = useState('');
   const [testModel, setTestModel] = useState('');
   const [adding, setAdding] = useState(false);
 
@@ -720,7 +815,7 @@ function AddEndpointModal({ onAdded, onCancel }: { onAdded: () => void; onCancel
     if (!name.trim() || !baseUrl.trim()) return;
     setAdding(true);
     try {
-      await api.addEndpoint({ name: name.trim(), base_url: baseUrl.trim() });
+      await api.addEndpoint({ name: name.trim(), base_url: baseUrl.trim(), website_url: websiteUrl.trim() });
       onAdded();
     } catch (e) {
       console.error('添加端点失败:', e);
@@ -782,6 +877,31 @@ function AddEndpointModal({ onAdded, onCancel }: { onAdded: () => void; onCancel
                   className="flex-1 h-9 font-mono text-sm"
                 />
               </div>
+
+              {/* 官网地址 */}
+              <div className="flex items-center gap-4">
+                <label className="w-20 shrink-0 text-sm text-muted-foreground text-right">
+                  官网地址
+                </label>
+                <Input
+                  placeholder="https://example.com"
+                  value={websiteUrl}
+                  onChange={e => setWebsiteUrl(e.target.value)}
+                  className="flex-1 h-9 font-mono text-sm"
+                />
+              </div>
+              {websiteUrl && (
+                <div className="flex items-center gap-4">
+                  <div className="w-20 shrink-0" />
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>图标预览：</span>
+                    {(() => {
+                      const furl = getFaviconUrl(websiteUrl);
+                      return furl ? <img src={furl} alt="" className="h-5 w-5 object-contain rounded" /> : null;
+                    })()}
+                  </div>
+                </div>
+              )}
 
               {/* 测试模型 */}
               <div className="flex items-center gap-4">

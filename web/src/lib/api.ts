@@ -118,8 +118,8 @@ export const api = {
 
   // 渠道（上游端点）
   listEndpoints: () => fetchJson<Endpoint[]>('/api/endpoints'),
-  addEndpoint: (data: { name: string; base_url: string }) => postJson<Endpoint>('/api/endpoints', data),
-  updateEndpoint: (id: string, data: { name: string; base_url: string }) => putJson<{ ok: boolean }>(`/api/endpoints/${id}`, data),
+  addEndpoint: (data: { name: string; base_url: string; website_url?: string }) => postJson<Endpoint>('/api/endpoints', data),
+  updateEndpoint: (id: string, data: { name: string; base_url: string; website_url?: string }) => putJson<{ ok: boolean }>(`/api/endpoints/${id}`, data),
   deleteEndpoint: (id: string) => deleteJson<{ ok: boolean }>(`/api/endpoints/${id}`),
   toggleEndpoint: (id: string, is_active: boolean) => putJson<{ ok: boolean }>(`/api/endpoints/${id}/status`, { is_active }),
   getEndpointModels: (id: string) => fetchJson<{ data: { id: string }[] }>(`/api/endpoints/${id}/models`),
