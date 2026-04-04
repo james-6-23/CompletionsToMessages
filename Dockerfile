@@ -7,7 +7,7 @@ COPY web/ ./
 RUN npm run build
 
 # ── Stage 2: 构建 Rust 后端 ──
-FROM rust:1.85-bookworm AS backend
+FROM rust:1.86-bookworm AS backend
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
