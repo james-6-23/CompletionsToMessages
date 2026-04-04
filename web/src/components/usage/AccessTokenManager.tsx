@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
+import { copyToClipboard } from '@/lib/utils';
 import type { AccessToken, Endpoint } from '@/types/usage';
 import {
   Plus, Trash2, Copy, KeyRound, Loader2, Check, Power,
@@ -80,7 +81,7 @@ export function AccessTokenManager() {
   }
 
   function handleCopy(text: string) {
-    navigator.clipboard.writeText(text).catch(() => {});
+    copyToClipboard(text);
   }
 
   function getChannelName(id: string): string {
@@ -248,7 +249,7 @@ function AccessTokenCard({
   }
 
   function handleCopy(text: string) {
-    navigator.clipboard.writeText(text).catch(() => {});
+    copyToClipboard(text);
   }
 
   return (

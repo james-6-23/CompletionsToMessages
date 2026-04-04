@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
+import { copyToClipboard } from '@/lib/utils';
 import type { ApiKey, Endpoint } from '@/types/usage';
 import {
   Plus, Trash2, Eye, EyeOff, Copy, FlaskConical, Check, X,
@@ -233,7 +234,7 @@ function EndpointCard({
   }
 
   function handleCopyKey(masked: string) {
-    navigator.clipboard.writeText(masked).catch(() => {});
+    copyToClipboard(masked);
   }
 
   function toggleRevealKey(id: string) {
