@@ -69,7 +69,7 @@ fn default_log_level() -> String {
 }
 
 fn default_db_path() -> String {
-    "completions-to-messages.db".to_string()
+    "data/completions-to-messages.db".to_string()
 }
 
 fn default_600() -> u64 {
