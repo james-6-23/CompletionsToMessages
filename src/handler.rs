@@ -3,7 +3,12 @@
 //! 实现 /v1/messages 端点的完整处理管线：
 //! 认证 → thinking 优化 → 模型映射 → 格式转换 → 转发 → 响应转换
 
-use crate::{auth, error::{ProxyError, UpstreamHeaders}, server::AppState, streaming, thinking, transform, usage};
+use crate::{
+    auth,
+    error::{ProxyError, UpstreamHeaders},
+    server::AppState,
+    streaming, thinking, transform, usage,
+};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -58,7 +63,9 @@ fn extract_upstream_headers(resp_headers: &reqwest::header::HeaderMap) -> axum::
     // 透传所有 anthropic-ratelimit-* 头
     for (key, val) in resp_headers.iter() {
         if key.as_str().starts_with("anthropic-ratelimit-") {
-            if let Ok(hdr_name) = axum::http::header::HeaderName::from_bytes(key.as_str().as_bytes()) {
+            if let Ok(hdr_name) =
+                axum::http::header::HeaderName::from_bytes(key.as_str().as_bytes())
+            {
                 if let Ok(hdr_val) = axum::http::header::HeaderValue::from_bytes(val.as_bytes()) {
                     headers.insert(hdr_name, hdr_val);
                 }
@@ -160,8 +167,10 @@ pub async fn handle_messages(
         }
 
         // 每次尝试都选取新密钥（按请求模型筛选渠道）
-        let (key_id, api_key, upstream_base, channel_id) =
-            state.key_pool.next_key(token_for_pool, Some(&actual_model)).await?;
+        let (key_id, api_key, upstream_base, channel_id) = state
+            .key_pool
+            .next_key(token_for_pool, Some(&actual_model))
+            .await?;
 
         last_key_id = key_id.clone();
         last_channel_id = channel_id.clone();
@@ -223,7 +232,9 @@ pub async fn handle_messages(
                         let pool = state.key_pool.clone();
                         let kid = kid.clone();
                         let sc = status_code;
-                        tokio::spawn(async move { pool.report_result(&kid, false, Some(sc)).await });
+                        tokio::spawn(
+                            async move { pool.report_result(&kid, false, Some(sc)).await },
+                        );
                     }
                     if let Some(ref t) = matched_token {
                         let pool = state.key_pool.clone();
@@ -246,7 +257,12 @@ pub async fn handle_messages(
                             "[cc-proxy] 上游可重试错误 (attempt {}): status={}, body={:?}",
                             attempt + 1,
                             status_code,
-                            body_text.as_deref().unwrap_or("(empty)").chars().take(200).collect::<String>()
+                            body_text
+                                .as_deref()
+                                .unwrap_or("(empty)")
+                                .chars()
+                                .take(200)
+                                .collect::<String>()
                         );
                         last_error = Some(ProxyError::UpstreamError {
                             status: status_code,
@@ -263,8 +279,12 @@ pub async fn handle_messages(
                     // 上下文窗口溢出自动修正 max_tokens（额外重试一次，独立于常规重试）
                     if status_code == 400 && !context_overflow_retried {
                         if let Some(body_str) = body_text.as_deref() {
-                            if let Some((input_tokens, _max_tokens, context_limit)) = parse_context_overflow(body_str) {
-                                let new_max = context_limit.saturating_sub(input_tokens).saturating_sub(1000);
+                            if let Some((input_tokens, _max_tokens, context_limit)) =
+                                parse_context_overflow(body_str)
+                            {
+                                let new_max = context_limit
+                                    .saturating_sub(input_tokens)
+                                    .saturating_sub(1000);
                                 if new_max >= 1000 {
                                     context_overflow_retried = true;
                                     log::warn!(
@@ -290,14 +310,25 @@ pub async fn handle_messages(
                         "[cc-proxy] 上游错误: status={}, model={}, body={:?}",
                         status_code,
                         request_model,
-                        body_text.as_deref().unwrap_or("(empty)").chars().take(200).collect::<String>()
+                        body_text
+                            .as_deref()
+                            .unwrap_or("(empty)")
+                            .chars()
+                            .take(200)
+                            .collect::<String>()
                     );
 
                     // 记录错误请求
                     let db = Arc::clone(&state.db);
                     let err_model = actual_model.clone();
-                    let err_req_model = if request_model.is_empty() { None } else { Some(request_model.clone()) };
-                    let err_msg = body_text.as_deref().map(|s| s.chars().take(500).collect::<String>());
+                    let err_req_model = if request_model.is_empty() {
+                        None
+                    } else {
+                        Some(request_model.clone())
+                    };
+                    let err_msg = body_text
+                        .as_deref()
+                        .map(|s| s.chars().take(500).collect::<String>());
                     let rid = request_id.clone();
                     let err_channel_id = channel_id.clone();
                     let err_key_id = key_id.clone().unwrap_or_default();
@@ -365,7 +396,11 @@ pub async fn handle_messages(
     if is_stream {
         let db = Arc::clone(&state.db);
         let stream_model = actual_model.clone();
-        let stream_req_model = if request_model.is_empty() { None } else { Some(request_model.clone()) };
+        let stream_req_model = if request_model.is_empty() {
+            None
+        } else {
+            Some(request_model.clone())
+        };
         let rid = request_id.clone();
         let start = start_time;
 
@@ -378,19 +413,20 @@ pub async fn handle_messages(
             usage_collector.clone(),
             Some(done_tx),
             upstream_headers_for_resp,
-        ).await;
+        )
+        .await;
 
         // 延迟记录 usage：等流传输完毕（done 信号）后从 collector 读取实际值
         let stream_channel_id = last_channel_id.clone();
         let stream_key_id = last_key_id.clone().unwrap_or_default();
         tokio::spawn(async move {
             // 等待流结束信号，最多 5 分钟超时兜底
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_secs(300),
-                done_rx,
-            ).await;
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(300), done_rx).await;
             let latency_ms = start.elapsed().as_millis() as u64;
-            let collected = usage_collector.lock().map(|c| c.clone()).unwrap_or_default();
+            let collected = usage_collector
+                .lock()
+                .map(|c| c.clone())
+                .unwrap_or_default();
             usage::record_request(
                 db,
                 rid,
@@ -420,7 +456,11 @@ pub async fn handle_messages(
             Arc::clone(&state.db),
             request_id,
             actual_model,
-            if request_model.is_empty() { None } else { Some(request_model) },
+            if request_model.is_empty() {
+                None
+            } else {
+                Some(request_model)
+            },
             start_time,
             last_channel_id,
             last_key_id.clone().unwrap_or_default(),
@@ -480,7 +520,10 @@ async fn handle_non_streaming_response(
     let upstream_response: Value = serde_json::from_slice(&body_bytes).map_err(|e| {
         log::error!(
             "[cc-proxy] 解析上游响应失败: {e}, body: {}",
-            String::from_utf8_lossy(&body_bytes).chars().take(500).collect::<String>()
+            String::from_utf8_lossy(&body_bytes)
+                .chars()
+                .take(500)
+                .collect::<String>()
         );
         ProxyError::TransformError(format!("Failed to parse upstream response: {e}"))
     })?;
@@ -499,7 +542,10 @@ async fn handle_non_streaming_response(
         let m = model;
         let rm = request_model;
         tokio::spawn(async move {
-            usage::record_request(db, rid, m, rm, u, latency_ms, None, 200, false, None, channel_id, key_id).await;
+            usage::record_request(
+                db, rid, m, rm, u, latency_ms, None, 200, false, None, channel_id, key_id,
+            )
+            .await;
         });
     }
 
@@ -519,10 +565,7 @@ pub async fn handle_models(
     let (_key_id, api_key, upstream_base, _channel_id) =
         state.key_pool.next_key(token_for_pool, None).await?;
 
-    let models_url = format!(
-        "{}/v1/models",
-        upstream_base.trim_end_matches('/')
-    );
+    let models_url = format!("{}/v1/models", upstream_base.trim_end_matches('/'));
 
     let resp = state
         .http_client
@@ -536,10 +579,12 @@ pub async fn handle_models(
         let status = resp.status();
         let body_bytes = resp.bytes().await.unwrap_or_default();
         return Ok((
-            axum::http::StatusCode::from_u16(status.as_u16()).unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
+            axum::http::StatusCode::from_u16(status.as_u16())
+                .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
             [(axum::http::header::CONTENT_TYPE, "application/json")],
             body_bytes,
-        ).into_response());
+        )
+            .into_response());
     }
 
     // 解析并过滤，只保留 Claude/Anthropic 模型
@@ -568,7 +613,5 @@ pub async fn handle_models(
 /// 判断模型 ID 是否为 Claude 系列
 pub fn is_claude_model(model_id: &str) -> bool {
     let id = model_id.to_lowercase();
-    id.contains("claude")
-        || id.starts_with("anthropic/")
-        || id.starts_with("anthropic:")
+    id.contains("claude") || id.starts_with("anthropic/") || id.starts_with("anthropic:")
 }

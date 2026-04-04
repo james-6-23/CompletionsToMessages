@@ -50,7 +50,10 @@ pub fn new_usage_collector() -> StreamUsageCollector {
 }
 
 /// 创建 done 信号对，用于流结束时通知 usage 记录任务
-pub fn new_done_signal() -> (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) {
+pub fn new_done_signal() -> (
+    tokio::sync::oneshot::Sender<()>,
+    tokio::sync::oneshot::Receiver<()>,
+) {
     tokio::sync::oneshot::channel()
 }
 
@@ -615,9 +618,18 @@ mod tests {
     #[test]
     fn test_map_stop_reason() {
         assert_eq!(map_stop_reason(Some("stop")), Some("end_turn".to_string()));
-        assert_eq!(map_stop_reason(Some("tool_calls")), Some("tool_use".to_string()));
-        assert_eq!(map_stop_reason(Some("length")), Some("max_tokens".to_string()));
-        assert_eq!(map_stop_reason(Some("content_filter")), Some("end_turn".to_string()));
+        assert_eq!(
+            map_stop_reason(Some("tool_calls")),
+            Some("tool_use".to_string())
+        );
+        assert_eq!(
+            map_stop_reason(Some("length")),
+            Some("max_tokens".to_string())
+        );
+        assert_eq!(
+            map_stop_reason(Some("content_filter")),
+            Some("end_turn".to_string())
+        );
     }
 
     #[tokio::test]
@@ -628,12 +640,15 @@ mod tests {
             "data: {\"id\":\"chatcmpl_1\",\"model\":\"gpt-4o\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n\n",
             "data: [DONE]\n\n"
         );
-        let upstream = stream::iter(vec![Ok::<_, std::io::Error>(Bytes::from(input.as_bytes().to_vec()))]);
+        let upstream = stream::iter(vec![Ok::<_, std::io::Error>(Bytes::from(
+            input.as_bytes().to_vec(),
+        ))]);
         let collector = new_usage_collector();
         let converted = create_anthropic_sse_stream(upstream, collector, None);
         let chunks: Vec<_> = converted.collect().await;
 
-        let merged = chunks.into_iter()
+        let merged = chunks
+            .into_iter()
             .map(|chunk| String::from_utf8_lossy(chunk.unwrap().as_ref()).to_string())
             .collect::<String>();
 

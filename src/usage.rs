@@ -66,13 +66,16 @@ pub fn calculate_cost(usage: &TokenUsage, pricing: &ModelPricingRow) -> CostBrea
 
     let input_rate = Decimal::from_str(&pricing.input_cost_per_million).unwrap_or(Decimal::ZERO);
     let output_rate = Decimal::from_str(&pricing.output_cost_per_million).unwrap_or(Decimal::ZERO);
-    let cache_read_rate = Decimal::from_str(&pricing.cache_read_cost_per_million).unwrap_or(Decimal::ZERO);
-    let cache_creation_rate = Decimal::from_str(&pricing.cache_creation_cost_per_million).unwrap_or(Decimal::ZERO);
+    let cache_read_rate =
+        Decimal::from_str(&pricing.cache_read_cost_per_million).unwrap_or(Decimal::ZERO);
+    let cache_creation_rate =
+        Decimal::from_str(&pricing.cache_creation_cost_per_million).unwrap_or(Decimal::ZERO);
 
     let input_cost = Decimal::from(usage.input_tokens) * input_rate / million;
     let output_cost = Decimal::from(usage.output_tokens) * output_rate / million;
     let cache_read_cost = Decimal::from(usage.cache_read_tokens) * cache_read_rate / million;
-    let cache_creation_cost = Decimal::from(usage.cache_creation_tokens) * cache_creation_rate / million;
+    let cache_creation_cost =
+        Decimal::from(usage.cache_creation_tokens) * cache_creation_rate / million;
     let total_cost = input_cost + output_cost + cache_read_cost + cache_creation_cost;
 
     CostBreakdown {

@@ -1,8 +1,8 @@
 //! 入站认证模块
 
-use axum::http::HeaderMap;
 use crate::database::Database;
 use crate::error::ProxyError;
+use axum::http::HeaderMap;
 use std::sync::Arc;
 
 /// 校验入站请求的认证信息
@@ -61,7 +61,9 @@ pub fn validate_auth(
         }
     }
 
-    Err(ProxyError::AuthError("Invalid or missing authentication".into()))
+    Err(ProxyError::AuthError(
+        "Invalid or missing authentication".into(),
+    ))
 }
 
 /// 从请求头中提取 token（x-api-key 或 Authorization: Bearer）

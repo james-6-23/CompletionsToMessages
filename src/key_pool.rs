@@ -67,7 +67,11 @@ impl KeyPool {
     /// 返回 `(key_id, api_key_value, upstream_base_url, endpoint_id)`：
     /// - key_id 为 Some 时表示来自数据库，None 时表示来自配置 fallback
     /// - model 不为 None 时，优先选择明确支持该模型的端点密钥
-    pub async fn next_key(&self, inbound_token: &str, model: Option<&str>) -> Result<(Option<String>, String, String, String), ProxyError> {
+    pub async fn next_key(
+        &self,
+        inbound_token: &str,
+        model: Option<&str>,
+    ) -> Result<(Option<String>, String, String, String), ProxyError> {
         let db = self.db.clone();
         let token = inbound_token.to_string();
         let keys = tokio::task::spawn_blocking(move || db.get_active_keys_for_token(&token))
@@ -90,14 +94,19 @@ impl KeyPool {
         }
 
         // 过滤出熔断器允许的密钥
-        let available_keys: Vec<_> = keys.iter()
+        let available_keys: Vec<_> = keys
+            .iter()
             .filter(|k| self.circuit_breaker.is_available(&k.id))
             .collect();
 
         // 按模型筛选：只保留端点模型列表为空（不限制）或包含请求模型的密钥（模糊匹配）
         let model_filtered: Vec<_> = if let Some(m) = model {
-            available_keys.iter()
-                .filter(|k| k.endpoint_models.is_empty() || k.endpoint_models.iter().any(|em| model_matches(m, em)))
+            available_keys
+                .iter()
+                .filter(|k| {
+                    k.endpoint_models.is_empty()
+                        || k.endpoint_models.iter().any(|em| model_matches(m, em))
+                })
                 .copied()
                 .collect()
         } else {
@@ -115,7 +124,8 @@ impl KeyPool {
                 )));
             }
             // 存在未配置模型列表的渠道（不限制模型），回退到这些渠道
-            let unrestricted: Vec<_> = available_keys.iter()
+            let unrestricted: Vec<_> = available_keys
+                .iter()
                 .filter(|k| k.endpoint_models.is_empty())
                 .copied()
                 .collect();
@@ -157,11 +167,11 @@ impl KeyPool {
             self.circuit_breaker.record_success(key_id);
         } else {
             let should_fuse = match status_code {
-                None => true, // 网络错误，触发熔断
-                Some(402) => true, // 余额不足，触发熔断（自动切换到其他健康 key）
-                Some(429) | Some(529) => true, // 限流/过载，触发熔断
+                None => true,                      // 网络错误，触发熔断
+                Some(402) => true,                 // 余额不足，触发熔断（自动切换到其他健康 key）
+                Some(429) | Some(529) => true,     // 限流/过载，触发熔断
                 Some(code) if code >= 500 => true, // 服务端错误，触发熔断
-                Some(_) => false, // 其他 4xx 客户端错误，不触发熔断
+                Some(_) => false,                  // 其他 4xx 客户端错误，不触发熔断
             };
             if should_fuse {
                 self.circuit_breaker.record_failure(key_id);

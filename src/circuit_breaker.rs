@@ -51,7 +51,10 @@ impl CircuitBreaker {
                 if since.elapsed() >= self.timeout {
                     health.state = State::HalfOpen;
                     health.consecutive_successes = 0;
-                    log::info!("[cc-proxy] 密钥 {} 熔断超时，进入半开状态", &key_id[..key_id.len().min(8)]);
+                    log::info!(
+                        "[cc-proxy] 密钥 {} 熔断超时，进入半开状态",
+                        &key_id[..key_id.len().min(8)]
+                    );
                     true
                 } else {
                     false
@@ -72,9 +75,13 @@ impl CircuitBreaker {
         health.consecutive_failures = 0;
         health.consecutive_successes += 1;
 
-        if health.state == State::HalfOpen && health.consecutive_successes >= self.success_threshold {
+        if health.state == State::HalfOpen && health.consecutive_successes >= self.success_threshold
+        {
             health.state = State::Closed;
-            log::info!("[cc-proxy] 密钥 {} 恢复正常", &key_id[..key_id.len().min(8)]);
+            log::info!(
+                "[cc-proxy] 密钥 {} 恢复正常",
+                &key_id[..key_id.len().min(8)]
+            );
         }
     }
 
@@ -92,13 +99,24 @@ impl CircuitBreaker {
         match health.state {
             State::Closed => {
                 if health.consecutive_failures >= self.failure_threshold {
-                    health.state = State::Open { since: Instant::now() };
-                    log::warn!("[cc-proxy] 密钥 {} 连续失败 {} 次，触发熔断", &key_id[..key_id.len().min(8)], health.consecutive_failures);
+                    health.state = State::Open {
+                        since: Instant::now(),
+                    };
+                    log::warn!(
+                        "[cc-proxy] 密钥 {} 连续失败 {} 次，触发熔断",
+                        &key_id[..key_id.len().min(8)],
+                        health.consecutive_failures
+                    );
                 }
             }
             State::HalfOpen => {
-                health.state = State::Open { since: Instant::now() };
-                log::warn!("[cc-proxy] 密钥 {} 半开探测失败，重新熔断", &key_id[..key_id.len().min(8)]);
+                health.state = State::Open {
+                    since: Instant::now(),
+                };
+                log::warn!(
+                    "[cc-proxy] 密钥 {} 半开探测失败，重新熔断",
+                    &key_id[..key_id.len().min(8)]
+                );
             }
             State::Open { .. } => {}
         }

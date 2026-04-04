@@ -10,7 +10,7 @@ use axum::{
     http::StatusCode,
     middleware::{self, Next},
     response::Response,
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use serde_json::json;
@@ -53,13 +53,11 @@ async fn admin_auth(
         })
         .or_else(|| {
             // 从 URL query 参数中提取 ?secret=xxx
-            req.uri()
-                .query()
-                .and_then(|q| {
-                    q.split('&')
-                        .find_map(|pair| pair.strip_prefix("secret="))
-                        .map(|s| s.to_string())
-                })
+            req.uri().query().and_then(|q| {
+                q.split('&')
+                    .find_map(|pair| pair.strip_prefix("secret="))
+                    .map(|s| s.to_string())
+            })
         });
 
     match token {
@@ -77,9 +75,7 @@ async fn admin_auth(
 /// 启动 HTTP 服务
 pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> {
     // 初始化数据库
-    let db = Database::new(&config.database_path).map_err(|e| {
-        format!("数据库初始化失败: {e}")
-    })?;
+    let db = Database::new(&config.database_path).map_err(|e| format!("数据库初始化失败: {e}"))?;
     log::info!("[cc-proxy] 数据库已初始化: {}", config.database_path);
 
     let timeout = std::time::Duration::from_secs(config.timeouts.request_timeout_secs);
@@ -116,16 +112,40 @@ pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> 
         .route("/keys/:id/status", put(stats_api::update_key_status))
         .route("/keys/:id/full", get(stats_api::get_key_full))
         .route("/keys/:id/test", post(stats_api::test_key))
-        .route("/endpoints", get(stats_api::list_endpoints).post(stats_api::add_endpoint))
-        .route("/endpoints/:id", put(stats_api::update_endpoint).delete(stats_api::delete_endpoint))
-        .route("/endpoints/:id/status", put(stats_api::update_endpoint_status))
+        .route(
+            "/endpoints",
+            get(stats_api::list_endpoints).post(stats_api::add_endpoint),
+        )
+        .route(
+            "/endpoints/:id",
+            put(stats_api::update_endpoint).delete(stats_api::delete_endpoint),
+        )
+        .route(
+            "/endpoints/:id/status",
+            put(stats_api::update_endpoint_status),
+        )
         .route("/endpoints/:id/models", get(stats_api::get_endpoint_models))
-        .route("/endpoints/:id/sync-models", post(stats_api::sync_endpoint_models))
-        .route("/access-tokens", get(stats_api::list_access_tokens).post(stats_api::add_access_token))
+        .route(
+            "/endpoints/:id/sync-models",
+            post(stats_api::sync_endpoint_models),
+        )
+        .route(
+            "/access-tokens",
+            get(stats_api::list_access_tokens).post(stats_api::add_access_token),
+        )
         .route("/access-tokens/:id", delete(stats_api::delete_access_token))
-        .route("/access-tokens/:id/status", put(stats_api::update_access_token_status))
-        .route("/access-tokens/:id/channels", put(stats_api::update_access_token_channels))
-        .route("/settings/:key", get(stats_api::get_setting).put(stats_api::set_setting))
+        .route(
+            "/access-tokens/:id/status",
+            put(stats_api::update_access_token_status),
+        )
+        .route(
+            "/access-tokens/:id/channels",
+            put(stats_api::update_access_token_channels),
+        )
+        .route(
+            "/settings/:key",
+            get(stats_api::get_setting).put(stats_api::set_setting),
+        )
         .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth))
         .with_state(state.clone());
 

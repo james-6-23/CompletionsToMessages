@@ -26,8 +26,10 @@ impl ReadPool {
                 path,
                 rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
                     | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-            ).map_err(|e| format!("打开只读连接失败: {e}"))?;
-            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA query_only=ON;").ok();
+            )
+            .map_err(|e| format!("打开只读连接失败: {e}"))?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA query_only=ON;")
+                .ok();
             conns.push(Mutex::new(conn));
         }
         Ok(Self {
@@ -38,7 +40,10 @@ impl ReadPool {
 
     /// 轮询获取一个读连接
     fn get(&self) -> &Mutex<Connection> {
-        let idx = self.counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % self.conns.len();
+        let idx = self
+            .counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            % self.conns.len();
         &self.conns[idx]
     }
 }
@@ -190,15 +195,14 @@ pub fn mask_api_key(key: &str) -> String {
         return "****".to_string();
     }
     let prefix = &key[..4];
-    let suffix = &key[key.len()-4..];
+    let suffix = &key[key.len() - 4..];
     format!("{}...{}", prefix, suffix)
 }
 
 impl Database {
     /// 创建数据库连接并初始化表结构
     pub fn new(path: &str) -> Result<Self, String> {
-        let conn = Connection::open(path)
-            .map_err(|e| format!("打开数据库失败: {e}"))?;
+        let conn = Connection::open(path).map_err(|e| format!("打开数据库失败: {e}"))?;
 
         // 启用 WAL 模式 + 性能 PRAGMA
         conn.execute_batch(
@@ -206,8 +210,9 @@ impl Database {
              PRAGMA synchronous=NORMAL;
              PRAGMA busy_timeout=5000;
              PRAGMA cache_size=-8000;
-             PRAGMA mmap_size=268435456;"
-        ).map_err(|e| format!("设置 PRAGMA 失败: {e}"))?;
+             PRAGMA mmap_size=268435456;",
+        )
+        .map_err(|e| format!("设置 PRAGMA 失败: {e}"))?;
 
         // 创建请求日志表
         conn.execute_batch(
@@ -233,8 +238,9 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_logs_created_at ON proxy_request_logs(created_at);
             CREATE INDEX IF NOT EXISTS idx_logs_model ON proxy_request_logs(model);
-            CREATE INDEX IF NOT EXISTS idx_logs_status ON proxy_request_logs(status_code);"
-        ).map_err(|e| format!("创建 proxy_request_logs 表失败: {e}"))?;
+            CREATE INDEX IF NOT EXISTS idx_logs_status ON proxy_request_logs(status_code);",
+        )
+        .map_err(|e| format!("创建 proxy_request_logs 表失败: {e}"))?;
 
         // 创建模型定价表
         conn.execute_batch(
@@ -245,13 +251,21 @@ impl Database {
                 output_cost_per_million TEXT NOT NULL DEFAULT '0',
                 cache_read_cost_per_million TEXT NOT NULL DEFAULT '0',
                 cache_creation_cost_per_million TEXT NOT NULL DEFAULT '0'
-            );"
-        ).map_err(|e| format!("创建 model_pricing 表失败: {e}"))?;
+            );",
+        )
+        .map_err(|e| format!("创建 model_pricing 表失败: {e}"))?;
 
         // 预填充常见模型定价（使用 INSERT OR IGNORE 避免重复）
         let pricing_data = vec![
             ("gpt-4o", "GPT-4o", "2.50", "10.00", "1.25", "3.75"),
-            ("gpt-4o-mini", "GPT-4o Mini", "0.15", "0.60", "0.075", "0.225"),
+            (
+                "gpt-4o-mini",
+                "GPT-4o Mini",
+                "0.15",
+                "0.60",
+                "0.075",
+                "0.225",
+            ),
             ("o3", "o3", "10.00", "40.00", "5.00", "15.00"),
             ("o3-mini", "o3-mini", "1.10", "4.40", "0.55", "1.65"),
             ("o4-mini", "o4-mini", "1.10", "4.40", "0.55", "1.65"),
@@ -273,8 +287,9 @@ impl Database {
                 base_url TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 created_at INTEGER NOT NULL
-            );"
-        ).map_err(|e| format!("创建 upstream_endpoints 表失败: {e}"))?;
+            );",
+        )
+        .map_err(|e| format!("创建 upstream_endpoints 表失败: {e}"))?;
 
         // 迁移：为 upstream_endpoints 添加 models 列（JSON 数组）
         {
@@ -292,8 +307,9 @@ impl Database {
 
             if !has_col {
                 conn.execute_batch(
-                    "ALTER TABLE upstream_endpoints ADD COLUMN models TEXT NOT NULL DEFAULT '[]';"
-                ).map_err(|e| format!("迁移 upstream_endpoints 添加 models 列失败: {e}"))?;
+                    "ALTER TABLE upstream_endpoints ADD COLUMN models TEXT NOT NULL DEFAULT '[]';",
+                )
+                .map_err(|e| format!("迁移 upstream_endpoints 添加 models 列失败: {e}"))?;
                 log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 models 列");
             }
         }
@@ -336,8 +352,9 @@ impl Database {
 
             if !has_col {
                 conn.execute_batch(
-                    "ALTER TABLE upstream_endpoints ADD COLUMN logo_url TEXT NOT NULL DEFAULT '';"
-                ).map_err(|e| format!("迁移 upstream_endpoints 添加 logo_url 列失败: {e}"))?;
+                    "ALTER TABLE upstream_endpoints ADD COLUMN logo_url TEXT NOT NULL DEFAULT '';",
+                )
+                .map_err(|e| format!("迁移 upstream_endpoints 添加 logo_url 列失败: {e}"))?;
                 log::info!("[cc-proxy] 已迁移 upstream_endpoints 表，添加 logo_url 列");
             }
         }
@@ -354,8 +371,9 @@ impl Database {
                 failed_requests INTEGER NOT NULL DEFAULT 0,
                 last_used_at INTEGER,
                 created_at INTEGER NOT NULL
-            );"
-        ).map_err(|e| format!("创建 api_keys 表失败: {e}"))?;
+            );",
+        )
+        .map_err(|e| format!("创建 api_keys 表失败: {e}"))?;
 
         // 迁移：如果 api_keys 表缺少 endpoint_id 列，添加之
         {
@@ -373,8 +391,9 @@ impl Database {
 
             if !has_col {
                 conn.execute_batch(
-                    "ALTER TABLE api_keys ADD COLUMN endpoint_id TEXT NOT NULL DEFAULT '';"
-                ).map_err(|e| format!("迁移 api_keys 添加 endpoint_id 列失败: {e}"))?;
+                    "ALTER TABLE api_keys ADD COLUMN endpoint_id TEXT NOT NULL DEFAULT '';",
+                )
+                .map_err(|e| format!("迁移 api_keys 添加 endpoint_id 列失败: {e}"))?;
                 log::info!("[cc-proxy] 已迁移 api_keys 表，添加 endpoint_id 列");
             }
         }
@@ -417,8 +436,9 @@ impl Database {
 
             if !has_col {
                 conn.execute_batch(
-                    "ALTER TABLE proxy_request_logs ADD COLUMN key_id TEXT NOT NULL DEFAULT '';"
-                ).map_err(|e| format!("迁移 proxy_request_logs 添加 key_id 列失败: {e}"))?;
+                    "ALTER TABLE proxy_request_logs ADD COLUMN key_id TEXT NOT NULL DEFAULT '';",
+                )
+                .map_err(|e| format!("迁移 proxy_request_logs 添加 key_id 列失败: {e}"))?;
                 log::info!("[cc-proxy] 已迁移 proxy_request_logs 表，添加 key_id 列");
             }
         }
@@ -436,7 +456,9 @@ impl Database {
             if let Some(url) = old_url.filter(|u| !u.is_empty()) {
                 // 检查 endpoints 表是否为空
                 let count: i64 = conn
-                    .query_row("SELECT COUNT(*) FROM upstream_endpoints", [], |row| row.get(0))
+                    .query_row("SELECT COUNT(*) FROM upstream_endpoints", [], |row| {
+                        row.get(0)
+                    })
                     .unwrap_or(0);
 
                 if count == 0 {
@@ -451,11 +473,15 @@ impl Database {
                     conn.execute(
                         "UPDATE api_keys SET endpoint_id = ?1 WHERE endpoint_id = ''",
                         params![ep_id],
-                    ).map_err(|e| format!("迁移密钥端点绑定失败: {e}"))?;
+                    )
+                    .map_err(|e| format!("迁移密钥端点绑定失败: {e}"))?;
 
                     // 删除旧设置
-                    conn.execute("DELETE FROM proxy_settings WHERE key = 'upstream_base_url'", [])
-                        .ok();
+                    conn.execute(
+                        "DELETE FROM proxy_settings WHERE key = 'upstream_base_url'",
+                        [],
+                    )
+                    .ok();
 
                     log::info!("[cc-proxy] 已迁移旧上游 URL 到 upstream_endpoints 表");
                 }
@@ -467,8 +493,9 @@ impl Database {
             "CREATE TABLE IF NOT EXISTS proxy_settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
-            );"
-        ).map_err(|e| format!("创建 proxy_settings 表失败: {e}"))?;
+            );",
+        )
+        .map_err(|e| format!("创建 proxy_settings 表失败: {e}"))?;
 
         // 创建访问密钥表
         conn.execute_batch(
@@ -481,8 +508,9 @@ impl Database {
                 failed_requests INTEGER NOT NULL DEFAULT 0,
                 last_used_at INTEGER,
                 created_at INTEGER NOT NULL
-            );"
-        ).map_err(|e| format!("创建 access_tokens 表失败: {e}"))?;
+            );",
+        )
+        .map_err(|e| format!("创建 access_tokens 表失败: {e}"))?;
 
         // 创建访问密钥-渠道关联表
         conn.execute_batch(
@@ -490,8 +518,9 @@ impl Database {
                 access_token_id TEXT NOT NULL,
                 channel_id TEXT NOT NULL,
                 PRIMARY KEY (access_token_id, channel_id)
-            );"
-        ).map_err(|e| format!("创建 access_token_channels 表失败: {e}"))?;
+            );",
+        )
+        .map_err(|e| format!("创建 access_token_channels 表失败: {e}"))?;
 
         // 迁移：将旧的 proxy_settings.auth_token 迁移到 access_tokens 表
         {
@@ -518,7 +547,8 @@ impl Database {
                     ).map_err(|e| format!("迁移 auth_token 到 access_tokens 失败: {e}"))?;
 
                     // 绑定到所有现有渠道
-                    let mut ep_stmt = conn.prepare("SELECT id FROM upstream_endpoints")
+                    let mut ep_stmt = conn
+                        .prepare("SELECT id FROM upstream_endpoints")
                         .map_err(|e| format!("查询端点列表失败: {e}"))?;
                     let ep_ids: Vec<String> = ep_stmt
                         .query_map([], |row| row.get::<_, String>(0))
@@ -537,7 +567,10 @@ impl Database {
                     conn.execute("DELETE FROM proxy_settings WHERE key = 'auth_token'", [])
                         .ok();
 
-                    log::info!("[cc-proxy] 已迁移旧 auth_token 到 access_tokens 表，绑定 {} 个渠道", ep_ids.len());
+                    log::info!(
+                        "[cc-proxy] 已迁移旧 auth_token 到 access_tokens 表，绑定 {} 个渠道",
+                        ep_ids.len()
+                    );
                 }
             }
         }
@@ -592,7 +625,12 @@ impl Database {
     }
 
     /// 查询使用统计摘要
-    pub fn get_usage_summary(&self, start_ts: i64, end_ts: i64, channel_id_filter: Option<&str>) -> Result<UsageSummary, String> {
+    pub fn get_usage_summary(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        channel_id_filter: Option<&str>,
+    ) -> Result<UsageSummary, String> {
         let conn = self.reader.get().lock();
 
         let mut sql = "SELECT
@@ -603,13 +641,15 @@ impl Database {
                 COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
                 COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens
             FROM proxy_request_logs
-            WHERE created_at >= ?1 AND created_at < ?2".to_string();
+            WHERE created_at >= ?1 AND created_at < ?2"
+            .to_string();
 
         if channel_id_filter.is_some() {
             sql.push_str(" AND channel_id = ?3");
         }
 
-        let mut stmt = conn.prepare(&sql)
+        let mut stmt = conn
+            .prepare(&sql)
             .map_err(|e| format!("准备查询失败: {e}"))?;
 
         let map_row = |row: &rusqlite::Row| -> rusqlite::Result<UsageSummary> {
@@ -627,7 +667,8 @@ impl Database {
             stmt.query_row(params![start_ts, end_ts, ch], map_row)
         } else {
             stmt.query_row(params![start_ts, end_ts], map_row)
-        }.map_err(|e| format!("查询使用摘要失败: {e}"))?;
+        }
+        .map_err(|e| format!("查询使用摘要失败: {e}"))?;
 
         Ok(result)
     }
@@ -651,7 +692,8 @@ impl Database {
                 COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
                 COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens
             FROM proxy_request_logs
-            WHERE created_at >= ?1 AND created_at < ?2".to_string();
+            WHERE created_at >= ?1 AND created_at < ?2"
+            .to_string();
 
         if channel_id_filter.is_some() {
             sql.push_str(" AND channel_id = ?4");
@@ -659,7 +701,8 @@ impl Database {
 
         sql.push_str(" GROUP BY bucket ORDER BY bucket ASC");
 
-        let mut stmt = conn.prepare(&sql)
+        let mut stmt = conn
+            .prepare(&sql)
             .map_err(|e| format!("准备查询失败: {e}"))?;
 
         let map_row = |row: &rusqlite::Row| -> rusqlite::Result<UsageTrend> {
@@ -683,7 +726,8 @@ impl Database {
             stmt.query_map(params![start_ts, end_ts, interval_secs, ch], map_row)
         } else {
             stmt.query_map(params![start_ts, end_ts, interval_secs], map_row)
-        }.map_err(|e| format!("查询使用趋势失败: {e}"))?;
+        }
+        .map_err(|e| format!("查询使用趋势失败: {e}"))?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -695,8 +739,9 @@ impl Database {
     /// 查询模型维度统计
     pub fn get_model_stats(&self, start_ts: i64, end_ts: i64) -> Result<Vec<ModelStats>, String> {
         let conn = self.reader.get().lock();
-        let mut stmt = conn.prepare(
-            "SELECT
+        let mut stmt = conn
+            .prepare(
+                "SELECT
                 model,
                 COUNT(*) as request_count,
                 COALESCE(SUM(CAST(total_cost_usd AS REAL)), 0) as total_cost,
@@ -708,21 +753,24 @@ impl Database {
             FROM proxy_request_logs
             WHERE created_at >= ?1 AND created_at < ?2
             GROUP BY model
-            ORDER BY total_cost DESC"
-        ).map_err(|e| format!("准备查询失败: {e}"))?;
+            ORDER BY total_cost DESC",
+            )
+            .map_err(|e| format!("准备查询失败: {e}"))?;
 
-        let rows = stmt.query_map(params![start_ts, end_ts], |row| {
-            Ok(ModelStats {
-                model: row.get(0)?,
-                request_count: row.get::<_, i64>(1)? as u64,
-                total_cost: format!("{:.6}", row.get::<_, f64>(2)?),
-                input_tokens: row.get::<_, i64>(3)? as u64,
-                output_tokens: row.get::<_, i64>(4)? as u64,
-                cache_creation_tokens: row.get::<_, i64>(5)? as u64,
-                cache_read_tokens: row.get::<_, i64>(6)? as u64,
-                avg_latency_ms: row.get(7)?,
+        let rows = stmt
+            .query_map(params![start_ts, end_ts], |row| {
+                Ok(ModelStats {
+                    model: row.get(0)?,
+                    request_count: row.get::<_, i64>(1)? as u64,
+                    total_cost: format!("{:.6}", row.get::<_, f64>(2)?),
+                    input_tokens: row.get::<_, i64>(3)? as u64,
+                    output_tokens: row.get::<_, i64>(4)? as u64,
+                    cache_creation_tokens: row.get::<_, i64>(5)? as u64,
+                    cache_read_tokens: row.get::<_, i64>(6)? as u64,
+                    avg_latency_ms: row.get(7)?,
+                })
             })
-        }).map_err(|e| format!("查询模型统计失败: {e}"))?;
+            .map_err(|e| format!("查询模型统计失败: {e}"))?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -780,11 +828,14 @@ impl Database {
         // 查询总数
         let count_sql = format!("SELECT COUNT(*) FROM proxy_request_logs WHERE {where_clause}");
         let total = {
-            let mut stmt = conn.prepare(&count_sql)
+            let mut stmt = conn
+                .prepare(&count_sql)
                 .map_err(|e| format!("准备计数查询失败: {e}"))?;
 
-            let param_refs: Vec<&dyn rusqlite::types::ToSql> = dynamic_params.iter().map(|p| p.as_ref()).collect();
-            let total: i64 = stmt.query_row(param_refs.as_slice(), |row| row.get(0))
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                dynamic_params.iter().map(|p| p.as_ref()).collect();
+            let total: i64 = stmt
+                .query_row(param_refs.as_slice(), |row| row.get(0))
                 .map_err(|e| format!("计数查询失败: {e}"))?;
             total as u64
         };
@@ -803,7 +854,8 @@ impl Database {
             param_index, param_index + 1
         );
 
-        let mut stmt = conn.prepare(&query_sql)
+        let mut stmt = conn
+            .prepare(&query_sql)
             .map_err(|e| format!("准备日志查询失败: {e}"))?;
 
         let map_row = |row: &rusqlite::Row| -> rusqlite::Result<RequestLogEntry> {
@@ -847,8 +899,10 @@ impl Database {
         query_params.push(Box::new(page_size));
         query_params.push(Box::new(offset));
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = query_params.iter().map(|p| p.as_ref()).collect();
-        let rows = stmt.query_map(param_refs.as_slice(), map_row)
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            query_params.iter().map(|p| p.as_ref()).collect();
+        let rows = stmt
+            .query_map(param_refs.as_slice(), map_row)
             .map_err(|e| format!("日志查询失败: {e}"))?;
 
         let mut logs = Vec::new();
@@ -867,23 +921,27 @@ impl Database {
     /// 查询所有模型定价
     pub fn get_model_pricing(&self) -> Result<Vec<ModelPricingRow>, String> {
         let conn = self.reader.get().lock();
-        let mut stmt = conn.prepare(
-            "SELECT model_id, display_name, input_cost_per_million, output_cost_per_million,
+        let mut stmt = conn
+            .prepare(
+                "SELECT model_id, display_name, input_cost_per_million, output_cost_per_million,
                     cache_read_cost_per_million, cache_creation_cost_per_million
             FROM model_pricing
-            ORDER BY model_id"
-        ).map_err(|e| format!("准备定价查询失败: {e}"))?;
+            ORDER BY model_id",
+            )
+            .map_err(|e| format!("准备定价查询失败: {e}"))?;
 
-        let rows = stmt.query_map([], |row| {
-            Ok(ModelPricingRow {
-                model_id: row.get(0)?,
-                display_name: row.get(1)?,
-                input_cost_per_million: row.get(2)?,
-                output_cost_per_million: row.get(3)?,
-                cache_read_cost_per_million: row.get(4)?,
-                cache_creation_cost_per_million: row.get(5)?,
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(ModelPricingRow {
+                    model_id: row.get(0)?,
+                    display_name: row.get(1)?,
+                    input_cost_per_million: row.get(2)?,
+                    output_cost_per_million: row.get(3)?,
+                    cache_read_cost_per_million: row.get(4)?,
+                    cache_creation_cost_per_million: row.get(5)?,
+                })
             })
-        }).map_err(|e| format!("定价查询失败: {e}"))?;
+            .map_err(|e| format!("定价查询失败: {e}"))?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -895,12 +953,14 @@ impl Database {
     /// 根据模型 ID 查询单个定价信息
     pub fn get_pricing_for_model(&self, model: &str) -> Result<Option<ModelPricingRow>, String> {
         let conn = self.reader.get().lock();
-        let mut stmt = conn.prepare(
-            "SELECT model_id, display_name, input_cost_per_million, output_cost_per_million,
+        let mut stmt = conn
+            .prepare(
+                "SELECT model_id, display_name, input_cost_per_million, output_cost_per_million,
                     cache_read_cost_per_million, cache_creation_cost_per_million
             FROM model_pricing
-            WHERE model_id = ?1"
-        ).map_err(|e| format!("准备定价查询失败: {e}"))?;
+            WHERE model_id = ?1",
+            )
+            .map_err(|e| format!("准备定价查询失败: {e}"))?;
 
         let result = stmt.query_row(params![model], |row| {
             Ok(ModelPricingRow {
@@ -925,29 +985,34 @@ impl Database {
     /// 查询所有上游端点（含每个端点的 key 数量）
     pub fn list_endpoints(&self) -> Result<Vec<EndpointRow>, String> {
         let conn = self.reader.get().lock();
-        let mut stmt = conn.prepare(
-            "SELECT e.id, e.name, e.base_url, e.is_active, e.created_at,
+        let mut stmt = conn
+            .prepare(
+                "SELECT e.id, e.name, e.base_url, e.is_active, e.created_at,
                     (SELECT COUNT(*) FROM api_keys k WHERE k.endpoint_id = e.id) as key_count,
                     e.models, e.website_url, e.logo_url
             FROM upstream_endpoints e
-            ORDER BY e.created_at ASC"
-        ).map_err(|e| format!("准备端点查询失败: {e}"))?;
+            ORDER BY e.created_at ASC",
+            )
+            .map_err(|e| format!("准备端点查询失败: {e}"))?;
 
-        let rows = stmt.query_map([], |row| {
-            let models_json: String = row.get::<_, String>(6).unwrap_or_else(|_| "[]".to_string());
-            let models: Vec<String> = serde_json::from_str(&models_json).unwrap_or_default();
-            Ok(EndpointRow {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                base_url: row.get(2)?,
-                is_active: row.get::<_, i32>(3)? != 0,
-                key_count: row.get::<_, i64>(5)? as u64,
-                models,
-                created_at: row.get(4)?,
-                website_url: row.get::<_, String>(7).unwrap_or_default(),
-                logo_url: row.get::<_, String>(8).unwrap_or_default(),
+        let rows = stmt
+            .query_map([], |row| {
+                let models_json: String =
+                    row.get::<_, String>(6).unwrap_or_else(|_| "[]".to_string());
+                let models: Vec<String> = serde_json::from_str(&models_json).unwrap_or_default();
+                Ok(EndpointRow {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    base_url: row.get(2)?,
+                    is_active: row.get::<_, i32>(3)? != 0,
+                    key_count: row.get::<_, i64>(5)? as u64,
+                    models,
+                    created_at: row.get(4)?,
+                    website_url: row.get::<_, String>(7).unwrap_or_default(),
+                    logo_url: row.get::<_, String>(8).unwrap_or_default(),
+                })
             })
-        }).map_err(|e| format!("查询端点失败: {e}"))?;
+            .map_err(|e| format!("查询端点失败: {e}"))?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -957,7 +1022,13 @@ impl Database {
     }
 
     /// 添加上游端点
-    pub fn add_endpoint(&self, name: &str, base_url: &str, website_url: &str, logo_url: &str) -> Result<EndpointRow, String> {
+    pub fn add_endpoint(
+        &self,
+        name: &str,
+        base_url: &str,
+        website_url: &str,
+        logo_url: &str,
+    ) -> Result<EndpointRow, String> {
         let conn = self.writer.lock();
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = chrono::Utc::now().timestamp();
@@ -981,7 +1052,14 @@ impl Database {
     }
 
     /// 更新上游端点
-    pub fn update_endpoint(&self, id: &str, name: &str, base_url: &str, website_url: &str, logo_url: &str) -> Result<(), String> {
+    pub fn update_endpoint(
+        &self,
+        id: &str,
+        name: &str,
+        base_url: &str,
+        website_url: &str,
+        logo_url: &str,
+    ) -> Result<(), String> {
         let conn = self.writer.lock();
         conn.execute(
             "UPDATE upstream_endpoints SET name = ?1, base_url = ?2, website_url = ?3, logo_url = ?4 WHERE id = ?5",
@@ -996,7 +1074,8 @@ impl Database {
         conn.execute(
             "UPDATE upstream_endpoints SET is_active = ?1 WHERE id = ?2",
             params![is_active as i32, id],
-        ).map_err(|e| format!("更新端点状态失败: {e}"))?;
+        )
+        .map_err(|e| format!("更新端点状态失败: {e}"))?;
         Ok(())
     }
 
@@ -1028,12 +1107,13 @@ impl Database {
     /// 更新端点支持的模型列表
     pub fn update_endpoint_models(&self, id: &str, models: &[String]) -> Result<(), String> {
         let conn = self.writer.lock();
-        let models_json = serde_json::to_string(models)
-            .map_err(|e| format!("序列化模型列表失败: {e}"))?;
+        let models_json =
+            serde_json::to_string(models).map_err(|e| format!("序列化模型列表失败: {e}"))?;
         conn.execute(
             "UPDATE upstream_endpoints SET models = ?1 WHERE id = ?2",
             params![models_json, id],
-        ).map_err(|e| format!("更新端点模型列表失败: {e}"))?;
+        )
+        .map_err(|e| format!("更新端点模型列表失败: {e}"))?;
         Ok(())
     }
 
@@ -1067,7 +1147,8 @@ impl Database {
                 ORDER BY created_at DESC"
             ).map_err(|e| format!("准备 api_keys 查询失败: {e}"))?;
 
-            let rows = stmt.query_map(params![eid], map_row)
+            let rows = stmt
+                .query_map(params![eid], map_row)
                 .map_err(|e| format!("查询 api_keys 失败: {e}"))?;
             for row in rows {
                 result.push(row.map_err(|e| format!("读取 api_key 行失败: {e}"))?);
@@ -1079,7 +1160,8 @@ impl Database {
                 ORDER BY created_at DESC"
             ).map_err(|e| format!("准备 api_keys 查询失败: {e}"))?;
 
-            let rows = stmt.query_map([], map_row)
+            let rows = stmt
+                .query_map([], map_row)
                 .map_err(|e| format!("查询 api_keys 失败: {e}"))?;
             for row in rows {
                 result.push(row.map_err(|e| format!("读取 api_key 行失败: {e}"))?);
@@ -1090,7 +1172,12 @@ impl Database {
     }
 
     /// 添加 API Key（绑定到指定端点）
-    pub fn add_api_key(&self, endpoint_id: &str, api_key: &str, label: &str) -> Result<ApiKeyRow, String> {
+    pub fn add_api_key(
+        &self,
+        endpoint_id: &str,
+        api_key: &str,
+        label: &str,
+    ) -> Result<ApiKeyRow, String> {
         let conn = self.writer.lock();
         let id = uuid::Uuid::new_v4().to_string();
         let created_at = chrono::Utc::now().timestamp();
@@ -1128,17 +1215,20 @@ impl Database {
         conn.execute(
             "UPDATE api_keys SET is_active = ?1 WHERE id = ?2",
             params![is_active as i32, id],
-        ).map_err(|e| format!("更新 api_key 状态失败: {e}"))?;
+        )
+        .map_err(|e| format!("更新 api_key 状态失败: {e}"))?;
         Ok(())
     }
 
     /// 更新 API Key 标签
+    #[allow(dead_code)]
     pub fn update_api_key_label(&self, id: &str, label: &str) -> Result<(), String> {
         let conn = self.writer.lock();
         conn.execute(
             "UPDATE api_keys SET label = ?1 WHERE id = ?2",
             params![label, id],
-        ).map_err(|e| format!("更新 api_key 标签失败: {e}"))?;
+        )
+        .map_err(|e| format!("更新 api_key 标签失败: {e}"))?;
         Ok(())
     }
 
@@ -1158,27 +1248,34 @@ impl Database {
     /// 获取所有活跃密钥（完整密钥值 + 所属端点 URL，内部使用）
     ///
     /// 只返回所属端点也处于活跃状态的密钥
+    #[allow(dead_code)]
     pub fn get_all_active_keys(&self) -> Result<Vec<ActiveKey>, String> {
         let conn = self.reader.get().lock();
-        let mut stmt = conn.prepare(
-            "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models
+        let mut stmt = conn
+            .prepare(
+                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models
             FROM api_keys k
             INNER JOIN upstream_endpoints e ON k.endpoint_id = e.id
             WHERE k.is_active = 1 AND e.is_active = 1
-            ORDER BY k.created_at ASC"
-        ).map_err(|e| format!("准备活跃密钥查询失败: {e}"))?;
+            ORDER BY k.created_at ASC",
+            )
+            .map_err(|e| format!("准备活跃密钥查询失败: {e}"))?;
 
-        let rows = stmt.query_map([], |row| {
-            let models_json: String = row.get::<_, String>(4).unwrap_or_else(|_| "[]".to_string());
-            let endpoint_models: Vec<String> = serde_json::from_str(&models_json).unwrap_or_default();
-            Ok(ActiveKey {
-                id: row.get(0)?,
-                api_key: row.get(1)?,
-                endpoint_id: row.get(2)?,
-                base_url: row.get(3)?,
-                endpoint_models,
+        let rows = stmt
+            .query_map([], |row| {
+                let models_json: String =
+                    row.get::<_, String>(4).unwrap_or_else(|_| "[]".to_string());
+                let endpoint_models: Vec<String> =
+                    serde_json::from_str(&models_json).unwrap_or_default();
+                Ok(ActiveKey {
+                    id: row.get(0)?,
+                    api_key: row.get(1)?,
+                    endpoint_id: row.get(2)?,
+                    base_url: row.get(3)?,
+                    endpoint_models,
+                })
             })
-        }).map_err(|e| format!("查询活跃密钥失败: {e}"))?;
+            .map_err(|e| format!("查询活跃密钥失败: {e}"))?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -1196,7 +1293,12 @@ impl Database {
             LEFT JOIN upstream_endpoints e ON k.endpoint_id = e.id
             WHERE k.id = ?1",
             params![id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1).unwrap_or_default())),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1).unwrap_or_default(),
+                ))
+            },
         );
 
         match result {
@@ -1230,7 +1332,8 @@ impl Database {
             "INSERT INTO proxy_settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![key, value],
-        ).map_err(|e| format!("保存设置失败: {e}"))?;
+        )
+        .map_err(|e| format!("保存设置失败: {e}"))?;
         Ok(())
     }
 
@@ -1245,28 +1348,38 @@ impl Database {
             ORDER BY created_at ASC"
         ).map_err(|e| format!("准备访问密钥查询失败: {e}"))?;
 
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i32>(3)?,
-                row.get::<_, i64>(4)?,
-                row.get::<_, i64>(5)?,
-                row.get::<_, Option<i64>>(6)?,
-                row.get::<_, i64>(7)?,
-            ))
-        }).map_err(|e| format!("查询访问密钥失败: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i32>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
+                    row.get::<_, i64>(7)?,
+                ))
+            })
+            .map_err(|e| format!("查询访问密钥失败: {e}"))?;
 
         let mut result = Vec::new();
         for row in rows {
-            let (id, token, name, is_active, total_requests, failed_requests, last_used_at, created_at) =
-                row.map_err(|e| format!("读取访问密钥行失败: {e}"))?;
+            let (
+                id,
+                token,
+                name,
+                is_active,
+                total_requests,
+                failed_requests,
+                last_used_at,
+                created_at,
+            ) = row.map_err(|e| format!("读取访问密钥行失败: {e}"))?;
 
             // 查询此 token 绑定的渠道
-            let mut ch_stmt = conn.prepare(
-                "SELECT channel_id FROM access_token_channels WHERE access_token_id = ?1"
-            ).map_err(|e| format!("准备渠道关联查询失败: {e}"))?;
+            let mut ch_stmt = conn
+                .prepare("SELECT channel_id FROM access_token_channels WHERE access_token_id = ?1")
+                .map_err(|e| format!("准备渠道关联查询失败: {e}"))?;
             let channel_ids: Vec<String> = ch_stmt
                 .query_map(params![&id], |r| r.get::<_, String>(0))
                 .map_err(|e| format!("查询渠道关联失败: {e}"))?
@@ -1289,10 +1402,17 @@ impl Database {
     }
 
     /// 添加访问密钥，自动生成 token，返回含完整 token 的行（仅此一次展示）
-    pub fn add_access_token(&self, name: &str, channel_ids: &[String]) -> Result<AccessTokenRow, String> {
+    pub fn add_access_token(
+        &self,
+        name: &str,
+        channel_ids: &[String],
+    ) -> Result<AccessTokenRow, String> {
         let conn = self.writer.lock();
         let id = uuid::Uuid::new_v4().to_string();
-        let token = format!("sk-proxy-{}", uuid::Uuid::new_v4().to_string().replace('-', ""));
+        let token = format!(
+            "sk-proxy-{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "")
+        );
         let created_at = chrono::Utc::now().timestamp();
 
         conn.execute(
@@ -1323,8 +1443,11 @@ impl Database {
     /// 删除访问密钥及其渠道关联
     pub fn delete_access_token(&self, id: &str) -> Result<(), String> {
         let conn = self.writer.lock();
-        conn.execute("DELETE FROM access_token_channels WHERE access_token_id = ?1", params![id])
-            .map_err(|e| format!("删除访问密钥渠道关联失败: {e}"))?;
+        conn.execute(
+            "DELETE FROM access_token_channels WHERE access_token_id = ?1",
+            params![id],
+        )
+        .map_err(|e| format!("删除访问密钥渠道关联失败: {e}"))?;
         conn.execute("DELETE FROM access_tokens WHERE id = ?1", params![id])
             .map_err(|e| format!("删除访问密钥失败: {e}"))?;
         Ok(())
@@ -1336,15 +1459,23 @@ impl Database {
         conn.execute(
             "UPDATE access_tokens SET is_active = ?1 WHERE id = ?2",
             params![is_active as i32, id],
-        ).map_err(|e| format!("更新访问密钥状态失败: {e}"))?;
+        )
+        .map_err(|e| format!("更新访问密钥状态失败: {e}"))?;
         Ok(())
     }
 
     /// 替换访问密钥绑定的渠道列表
-    pub fn update_access_token_channels(&self, id: &str, channel_ids: &[String]) -> Result<(), String> {
+    pub fn update_access_token_channels(
+        &self,
+        id: &str,
+        channel_ids: &[String],
+    ) -> Result<(), String> {
         let conn = self.writer.lock();
-        conn.execute("DELETE FROM access_token_channels WHERE access_token_id = ?1", params![id])
-            .map_err(|e| format!("清除访问密钥渠道关联失败: {e}"))?;
+        conn.execute(
+            "DELETE FROM access_token_channels WHERE access_token_id = ?1",
+            params![id],
+        )
+        .map_err(|e| format!("清除访问密钥渠道关联失败: {e}"))?;
 
         for ch_id in channel_ids {
             conn.execute(
@@ -1377,11 +1508,22 @@ impl Database {
         );
 
         match result {
-            Ok((id, token_val, name, is_active, total_requests, failed_requests, last_used_at, created_at)) => {
+            Ok((
+                id,
+                token_val,
+                name,
+                is_active,
+                total_requests,
+                failed_requests,
+                last_used_at,
+                created_at,
+            )) => {
                 // 查询绑定的渠道
-                let mut ch_stmt = conn.prepare(
-                    "SELECT channel_id FROM access_token_channels WHERE access_token_id = ?1"
-                ).map_err(|e| format!("准备渠道关联查询失败: {e}"))?;
+                let mut ch_stmt = conn
+                    .prepare(
+                        "SELECT channel_id FROM access_token_channels WHERE access_token_id = ?1",
+                    )
+                    .map_err(|e| format!("准备渠道关联查询失败: {e}"))?;
                 let channel_ids: Vec<String> = ch_stmt
                     .query_map(params![&id], |r| r.get::<_, String>(0))
                     .map_err(|e| format!("查询渠道关联失败: {e}"))?
@@ -1410,27 +1552,33 @@ impl Database {
     /// 只返回活跃渠道 + 活跃密钥的组合
     pub fn get_active_keys_for_token(&self, token: &str) -> Result<Vec<ActiveKey>, String> {
         let conn = self.reader.get().lock();
-        let mut stmt = conn.prepare(
-            "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models
+        let mut stmt = conn
+            .prepare(
+                "SELECT k.id, k.api_key, k.endpoint_id, e.base_url, e.models
             FROM api_keys k
             INNER JOIN upstream_endpoints e ON k.endpoint_id = e.id
             INNER JOIN access_token_channels atc ON atc.channel_id = e.id
             INNER JOIN access_tokens at2 ON at2.id = atc.access_token_id
             WHERE at2.token = ?1 AND at2.is_active = 1 AND k.is_active = 1 AND e.is_active = 1
-            ORDER BY k.created_at ASC"
-        ).map_err(|e| format!("准备 token 关联活跃密钥查询失败: {e}"))?;
+            ORDER BY k.created_at ASC",
+            )
+            .map_err(|e| format!("准备 token 关联活跃密钥查询失败: {e}"))?;
 
-        let rows = stmt.query_map(params![token], |row| {
-            let models_json: String = row.get::<_, String>(4).unwrap_or_else(|_| "[]".to_string());
-            let endpoint_models: Vec<String> = serde_json::from_str(&models_json).unwrap_or_default();
-            Ok(ActiveKey {
-                id: row.get(0)?,
-                api_key: row.get(1)?,
-                endpoint_id: row.get(2)?,
-                base_url: row.get(3)?,
-                endpoint_models,
+        let rows = stmt
+            .query_map(params![token], |row| {
+                let models_json: String =
+                    row.get::<_, String>(4).unwrap_or_else(|_| "[]".to_string());
+                let endpoint_models: Vec<String> =
+                    serde_json::from_str(&models_json).unwrap_or_default();
+                Ok(ActiveKey {
+                    id: row.get(0)?,
+                    api_key: row.get(1)?,
+                    endpoint_id: row.get(2)?,
+                    base_url: row.get(3)?,
+                    endpoint_models,
+                })
             })
-        }).map_err(|e| format!("查询 token 关联活跃密钥失败: {e}"))?;
+            .map_err(|e| format!("查询 token 关联活跃密钥失败: {e}"))?;
 
         let mut result = Vec::new();
         for row in rows {
@@ -1455,7 +1603,8 @@ impl Database {
     /// 查询 access_tokens 表中的记录数
     pub fn count_access_tokens(&self) -> Result<u64, String> {
         let conn = self.reader.get().lock();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM access_tokens", [], |row| row.get(0))
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM access_tokens", [], |row| row.get(0))
             .map_err(|e| format!("查询访问密钥数量失败: {e}"))?;
         Ok(count as u64)
     }

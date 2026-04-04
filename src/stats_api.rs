@@ -38,7 +38,11 @@ pub struct LogsParam {
 }
 
 /// 根据参数计算起止时间戳（Unix 秒）
-fn time_range_from_params(minutes: Option<u32>, hours: Option<u32>, days: Option<u32>) -> (i64, i64) {
+fn time_range_from_params(
+    minutes: Option<u32>,
+    hours: Option<u32>,
+    days: Option<u32>,
+) -> (i64, i64) {
     let now = chrono::Utc::now().timestamp();
     let secs = if let Some(m) = minutes {
         m.max(1) as i64 * 60
@@ -131,7 +135,15 @@ pub async fn get_logs(
     let db = Arc::clone(&state.db);
 
     let logs = tokio::task::spawn_blocking(move || {
-        db.get_request_logs(page, page_size, status_code, model.as_deref(), channel_id.as_deref(), start_ts, end_ts)
+        db.get_request_logs(
+            page,
+            page_size,
+            status_code,
+            model.as_deref(),
+            channel_id.as_deref(),
+            start_ts,
+            end_ts,
+        )
     })
     .await
     .map_err(|e| ProxyError::Internal(format!("查询任务失败: {e}")))?
@@ -141,9 +153,7 @@ pub async fn get_logs(
 }
 
 /// GET /api/stats/pricing — 模型定价列表
-pub async fn get_pricing(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ProxyError> {
+pub async fn get_pricing(State(state): State<AppState>) -> Result<Json<Value>, ProxyError> {
     let db = Arc::clone(&state.db);
 
     let pricing = tokio::task::spawn_blocking(move || db.get_model_pricing())
@@ -155,9 +165,7 @@ pub async fn get_pricing(
 }
 
 /// GET /api/config — 脱敏后的配置信息
-pub async fn get_config_info(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ProxyError> {
+pub async fn get_config_info(State(state): State<AppState>) -> Result<Json<Value>, ProxyError> {
     let config = &state.config;
 
     // 从数据库获取端点列表和访问密钥数量
@@ -174,8 +182,8 @@ pub async fn get_config_info(
         .and_then(|r| r.ok())
         .unwrap_or(0);
 
-    let has_auth = access_tokens_count > 0
-        || config.auth_token.as_ref().map_or(false, |s| !s.is_empty());
+    let has_auth =
+        access_tokens_count > 0 || config.auth_token.as_ref().map_or(false, |s| !s.is_empty());
 
     Ok(Json(json!({
         "listen": config.listen,
@@ -211,7 +219,8 @@ pub async fn set_setting(
     Path(key): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ProxyError> {
-    let value = body.get("value")
+    let value = body
+        .get("value")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
@@ -255,9 +264,7 @@ pub struct UpdateEndpointStatusRequest {
 }
 
 /// GET /api/endpoints — 列出所有上游端点
-pub async fn list_endpoints(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ProxyError> {
+pub async fn list_endpoints(State(state): State<AppState>) -> Result<Json<Value>, ProxyError> {
     let db = Arc::clone(&state.db);
     let endpoints = tokio::task::spawn_blocking(move || db.list_endpoints())
         .await
@@ -395,12 +402,15 @@ pub async fn add_key(
     let ep_id = body.endpoint_id.clone();
     let db2 = Arc::clone(&state.db);
     let ep_models: Vec<String> = tokio::task::spawn_blocking(move || {
-        db2.list_endpoints().unwrap_or_default()
+        db2.list_endpoints()
+            .unwrap_or_default()
             .into_iter()
             .find(|e| e.id == ep_id)
             .map(|e| e.models)
             .unwrap_or_default()
-    }).await.unwrap_or_default();
+    })
+    .await
+    .unwrap_or_default();
 
     if ep_models.is_empty() {
         let state2 = state.clone();
@@ -418,7 +428,8 @@ pub async fn add_key(
 
             if let Some(url) = base_url {
                 let models_url = format!("{}/v1/models", url.trim_end_matches('/'));
-                if let Ok(resp) = state2.http_client
+                if let Ok(resp) = state2
+                    .http_client
                     .get(&models_url)
                     .header("Authorization", format!("Bearer {}", api_key_val))
                     .send()
@@ -429,13 +440,19 @@ pub async fn add_key(
                             let model_ids: Vec<String> = body
                                 .get("data")
                                 .and_then(|d| d.as_array())
-                                .map(|arr| arr.iter()
-                                    .filter_map(|m| {
-                                        let mid = m.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                                        if crate::handler::is_claude_model(mid) { Some(mid.to_string()) } else { None }
-                                    })
-                                    .collect()
-                                )
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|m| {
+                                            let mid =
+                                                m.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                                            if crate::handler::is_claude_model(mid) {
+                                                Some(mid.to_string())
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .collect()
+                                })
                                 .unwrap_or_default();
 
                             if !model_ids.is_empty() {
@@ -444,8 +461,13 @@ pub async fn add_key(
                                 let ep_id4 = ep_id2.clone();
                                 let _ = tokio::task::spawn_blocking(move || {
                                     db4.update_endpoint_models(&ep_id4, &model_ids)
-                                }).await;
-                                log::info!("[cc-proxy] 自动同步渠道 {} 模型列表: {} 个", ep_id2, count);
+                                })
+                                .await;
+                                log::info!(
+                                    "[cc-proxy] 自动同步渠道 {} 模型列表: {} 个",
+                                    ep_id2,
+                                    count
+                                );
                             }
                         }
                     }
@@ -620,7 +642,9 @@ pub async fn sync_endpoint_models(
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
-        return Err(ProxyError::Internal(format!("上游返回错误 {status}: {body}")));
+        return Err(ProxyError::Internal(format!(
+            "上游返回错误 {status}: {body}"
+        )));
     }
 
     let body: Value = resp.json().await.unwrap_or(json!({"data": []}));
@@ -652,7 +676,11 @@ pub async fn sync_endpoint_models(
         .map_err(|e| ProxyError::Internal(format!("保存模型列表失败: {e}")))?
         .map_err(|e| ProxyError::Internal(e))?;
 
-    log::info!("[cc-proxy] 端点 {} 同步模型列表: {} 个模型", id, model_ids.len());
+    log::info!(
+        "[cc-proxy] 端点 {} 同步模型列表: {} 个模型",
+        id,
+        model_ids.len()
+    );
 
     // 5. 返回结果
     Ok(Json(json!({
@@ -719,7 +747,9 @@ pub async fn test_key(
         Ok(r) => {
             let status = r.status().as_u16();
             let body = r.text().await.unwrap_or_default();
-            Ok(Json(json!({"valid": false, "status": status, "error": body})))
+            Ok(Json(
+                json!({"valid": false, "status": status, "error": body}),
+            ))
         }
         Err(e) => Ok(Json(json!({"valid": false, "error": e.to_string()}))),
     }
@@ -749,9 +779,7 @@ pub struct UpdateAccessTokenChannelsRequest {
 }
 
 /// GET /api/access-tokens — 列出所有访问密钥
-pub async fn list_access_tokens(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, ProxyError> {
+pub async fn list_access_tokens(State(state): State<AppState>) -> Result<Json<Value>, ProxyError> {
     let db = Arc::clone(&state.db);
     let tokens = tokio::task::spawn_blocking(move || db.list_access_tokens())
         .await

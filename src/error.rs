@@ -7,6 +7,7 @@ use serde_json::json;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum ProxyError {
     #[error("格式转换错误: {0}")]
     TransformError(String),

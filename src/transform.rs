@@ -452,9 +452,7 @@ pub fn openai_to_anthropic(body: Value) -> Result<Value, ProxyError> {
             "tool_calls" | "function_call" => "tool_use",
             "content_filter" => "end_turn",
             other => {
-                log::warn!(
-                    "[cc-proxy] Unknown finish_reason in non-streaming response: {other}"
-                );
+                log::warn!("[cc-proxy] Unknown finish_reason in non-streaming response: {other}");
                 "end_turn"
             }
         })
@@ -680,16 +678,38 @@ mod tests {
 
     #[test]
     fn test_resolve_reasoning_effort_output_config() {
-        assert_eq!(resolve_reasoning_effort(&json!({"output_config": {"effort": "low"}})), Some("low"));
-        assert_eq!(resolve_reasoning_effort(&json!({"output_config": {"effort": "max"}})), Some("xhigh"));
+        assert_eq!(
+            resolve_reasoning_effort(&json!({"output_config": {"effort": "low"}})),
+            Some("low")
+        );
+        assert_eq!(
+            resolve_reasoning_effort(&json!({"output_config": {"effort": "max"}})),
+            Some("xhigh")
+        );
     }
 
     #[test]
     fn test_resolve_reasoning_effort_thinking() {
-        assert_eq!(resolve_reasoning_effort(&json!({"thinking": {"type": "adaptive"}})), Some("high"));
-        assert_eq!(resolve_reasoning_effort(&json!({"thinking": {"type": "enabled", "budget_tokens": 1024}})), Some("low"));
-        assert_eq!(resolve_reasoning_effort(&json!({"thinking": {"type": "enabled", "budget_tokens": 32000}})), Some("high"));
-        assert_eq!(resolve_reasoning_effort(&json!({"thinking": {"type": "disabled"}})), None);
+        assert_eq!(
+            resolve_reasoning_effort(&json!({"thinking": {"type": "adaptive"}})),
+            Some("high")
+        );
+        assert_eq!(
+            resolve_reasoning_effort(
+                &json!({"thinking": {"type": "enabled", "budget_tokens": 1024}})
+            ),
+            Some("low")
+        );
+        assert_eq!(
+            resolve_reasoning_effort(
+                &json!({"thinking": {"type": "enabled", "budget_tokens": 32000}})
+            ),
+            Some("high")
+        );
+        assert_eq!(
+            resolve_reasoning_effort(&json!({"thinking": {"type": "disabled"}})),
+            None
+        );
     }
 
     #[test]

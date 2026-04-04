@@ -21,7 +21,10 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "completions-to-messages", about = "OpenAI Chat Completions ↔ Anthropic Messages API reverse proxy")]
+#[command(
+    name = "completions-to-messages",
+    about = "OpenAI Chat Completions ↔ Anthropic Messages API reverse proxy"
+)]
 struct Cli {
     /// 配置文件路径
     #[arg(short, long)]
@@ -66,7 +69,12 @@ async fn main() {
     config.apply_env_overrides();
 
     // CLI 参数覆盖
-    config.apply_cli_overrides(cli.listen, cli.upstream_url, cli.upstream_key, cli.auth_token);
+    config.apply_cli_overrides(
+        cli.listen,
+        cli.upstream_url,
+        cli.upstream_key,
+        cli.auth_token,
+    );
 
     // 初始化日志
     std::env::set_var("RUST_LOG", &config.log_level);
