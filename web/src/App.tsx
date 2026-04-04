@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { ToastContainer } from '@/components/Toast'
 import { UsageDashboard } from '@/components/usage/UsageDashboard'
 import { RequestLogPage } from '@/components/usage/RequestLogPage'
@@ -10,22 +11,22 @@ import { api, setAdminSecret } from '@/lib/api'
 import { useTheme } from '@/hooks/useTheme'
 import { Sun, Moon, LayoutDashboard, ScrollText, BarChart3, KeyRound, Network } from 'lucide-react'
 
-type Page = 'dashboard' | 'logs' | 'models' | 'channels' | 'tokens'
-
-const NAV_ITEMS: { key: Page; label: string; icon: React.ReactNode }[] = [
-  { key: 'dashboard', label: '总览', icon: <LayoutDashboard className="size-4" /> },
-  { key: 'logs', label: '请求日志', icon: <ScrollText className="size-4" /> },
-  { key: 'models', label: '模型统计', icon: <BarChart3 className="size-4" /> },
-  { key: 'channels', label: '渠道管理', icon: <Network className="size-4" /> },
-  { key: 'tokens', label: '访问密钥', icon: <KeyRound className="size-4" /> },
+const NAV_ITEMS: { path: string; label: string; icon: React.ReactNode }[] = [
+  { path: '/',         label: '总览',     icon: <LayoutDashboard className="size-4" /> },
+  { path: '/logs',     label: '请求日志', icon: <ScrollText className="size-4" /> },
+  { path: '/models',   label: '模型统计', icon: <BarChart3 className="size-4" /> },
+  { path: '/channels', label: '渠道管理', icon: <Network className="size-4" /> },
+  { path: '/tokens',   label: '访问密钥', icon: <KeyRound className="size-4" /> },
 ]
 
 export default function App() {
   const [authed, setAuthed] = useState(false)
   const [checking, setChecking] = useState(true)
-  const [page, setPage] = useState<Page>('dashboard')
   const { theme, toggle } = useTheme()
   const [spinning, setSpinning] = useState(false)
+  const location = useLocation()
+
+  const isChannels = location.pathname === '/channels'
 
   const handleThemeToggle = (e: React.MouseEvent) => {
     setSpinning(true)
@@ -100,33 +101,39 @@ export default function App() {
 
           <nav className="flex gap-1 -mb-px overflow-x-auto">
             {NAV_ITEMS.map((item) => (
-              <button
-                key={item.key}
-                onClick={() => setPage(item.key)}
-                className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  page === item.key
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
-                }`}
+              <NavLink
+                key={item.path}
+                to={item.path}
+                end={item.path === '/'}
+                className={({ isActive }) =>
+                  `inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                    isActive
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+                  }`
+                }
               >
                 {item.icon}
                 {item.label}
-              </button>
+              </NavLink>
             ))}
           </nav>
         </div>
       </header>
 
-      <div className={`container mx-auto px-4 sm:px-6 max-w-7xl ${page === 'channels' ? 'py-4' : 'py-8'}`}>
-        {page === 'dashboard' && <UsageDashboard />}
-        {page === 'logs' && <RequestLogPage />}
-        {page === 'models' && <ModelStatsPage />}
-        {page === 'channels' && (
-          <div style={{ height: 'calc(100vh - 200px)', minHeight: '500px' }}>
-            <ChannelManager />
-          </div>
-        )}
-        {page === 'tokens' && <AccessTokenManager />}
+      <div className={`container mx-auto px-4 sm:px-6 max-w-7xl ${isChannels ? 'py-4' : 'py-8'}`}>
+        <Routes>
+          <Route path="/" element={<UsageDashboard />} />
+          <Route path="/logs" element={<RequestLogPage />} />
+          <Route path="/models" element={<ModelStatsPage />} />
+          <Route path="/channels" element={
+            <div style={{ height: 'calc(100vh - 200px)', minHeight: '500px' }}>
+              <ChannelManager />
+            </div>
+          } />
+          <Route path="/tokens" element={<AccessTokenManager />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </div>
     </div>
   )

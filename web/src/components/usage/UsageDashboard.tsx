@@ -24,7 +24,7 @@ const TIME_RANGE_HOURS: Record<TimeRange, number> = {
 };
 
 export function UsageDashboard() {
-  const [timeRange, setTimeRange] = useState<TimeRange>('1d');
+  const [timeRange, setTimeRange] = useState<TimeRange>('1h');
   const [refreshIdx, setRefreshIdx] = useState(3);
   const [channelFilter, setChannelFilter] = useState<string>('all');
   const refreshMs = REFRESH_OPTIONS[refreshIdx].value;

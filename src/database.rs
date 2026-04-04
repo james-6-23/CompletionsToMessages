@@ -29,10 +29,10 @@ pub struct UsageTrend {
     pub date: String,
     pub request_count: u64,
     pub total_cost: String,
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    pub cache_creation_tokens: u64,
-    pub cache_read_tokens: u64,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_cache_creation_tokens: u64,
+    pub total_cache_read_tokens: u64,
 }
 
 /// 模型维度统计
@@ -605,10 +605,10 @@ impl Database {
                 date,
                 request_count: row.get::<_, i64>(1)? as u64,
                 total_cost: format!("{:.6}", row.get::<_, f64>(2)?),
-                input_tokens: row.get::<_, i64>(3)? as u64,
-                output_tokens: row.get::<_, i64>(4)? as u64,
-                cache_creation_tokens: row.get::<_, i64>(5)? as u64,
-                cache_read_tokens: row.get::<_, i64>(6)? as u64,
+                total_input_tokens: row.get::<_, i64>(3)? as u64,
+                total_output_tokens: row.get::<_, i64>(4)? as u64,
+                total_cache_creation_tokens: row.get::<_, i64>(5)? as u64,
+                total_cache_read_tokens: row.get::<_, i64>(6)? as u64,
             })
         };
 
