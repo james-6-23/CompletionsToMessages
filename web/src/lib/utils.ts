@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { toast } from "@/components/Toast"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -7,9 +8,15 @@ export function cn(...inputs: ClassValue[]) {
 
 export function copyToClipboard(text: string) {
   if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+    navigator.clipboard.writeText(text)
+      .then(() => toast('已复制到剪贴板'))
+      .catch(() => {
+        fallbackCopy(text);
+        toast('已复制到剪贴板');
+      });
   } else {
     fallbackCopy(text);
+    toast('已复制到剪贴板');
   }
 }
 

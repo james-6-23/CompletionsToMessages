@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { copyToClipboard } from '@/lib/utils';
+import { toast } from '@/components/Toast';
 import type { ApiKey, Endpoint } from '@/types/usage';
 import {
   Plus, Trash2, Eye, EyeOff, Copy, FlaskConical, Check, X,
@@ -226,8 +227,10 @@ function EndpointCard({
     try {
       const result = await api.testApiKey(id);
       setTestResults(prev => ({ ...prev, [id]: result.valid }));
+      toast(result.valid ? '密钥测试通过' : '密钥测试失败', result.valid ? 'success' : 'error');
     } catch {
       setTestResults(prev => ({ ...prev, [id]: false }));
+      toast('密钥测试失败', 'error');
     } finally {
       setTestingKeys(prev => { const s = new Set(prev); s.delete(id); return s; });
     }

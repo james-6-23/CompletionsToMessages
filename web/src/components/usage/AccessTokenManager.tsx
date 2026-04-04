@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { copyToClipboard } from '@/lib/utils';
+import { toast } from '@/components/Toast';
 import type { AccessToken, Endpoint } from '@/types/usage';
 import {
   Plus, Trash2, Copy, KeyRound, Loader2, Check, Power,
@@ -48,8 +49,10 @@ export function AccessTokenManager() {
       setSelectedChannels(new Set());
       setShowAdd(false);
       refresh();
+      toast('访问密钥创建成功');
     } catch (e) {
       console.error('创建访问密钥失败:', e);
+      toast('创建访问密钥失败', 'error');
     }
   }
 

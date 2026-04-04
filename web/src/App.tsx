@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { ToastContainer } from '@/components/Toast'
 import { UsageDashboard } from '@/components/usage/UsageDashboard'
 import { RequestLogPage } from '@/components/usage/RequestLogPage'
 import { ModelStatsPage } from '@/components/usage/ModelStatsPage'
@@ -69,6 +70,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background">
+      <ToastContainer />
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl">
         <div className="container mx-auto max-w-7xl px-4 sm:px-6">
           <div className="flex h-14 items-center justify-between">
