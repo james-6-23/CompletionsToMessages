@@ -8,7 +8,7 @@ import { toast } from '@/components/Toast';
 import type { ApiKey, Endpoint } from '@/types/usage';
 import {
   Plus, Trash2, Eye, EyeOff, Copy, FlaskConical, Check, X,
-  Loader2, KeyRound, Globe, Pencil, Zap,
+  Loader2, KeyRound, Globe, Pencil, Zap, Files,
   Search, MoreHorizontal, MinusCircle, Download, RotateCcw,
 } from 'lucide-react';
 import { fmtTimestamp } from './format';
@@ -383,6 +383,27 @@ function ChannelDetailPanel({
     }
   }
 
+  const [cloning, setCloning] = useState(false);
+  async function handleCloneEndpoint() {
+    setCloning(true);
+    try {
+      await api.addEndpoint({
+        name: `${endpoint.name} copy`,
+        base_url: endpoint.base_url,
+        website_url: endpoint.website_url || undefined,
+        logo_url: endpoint.logo_url || undefined,
+        proxy_url: endpoint.proxy_url || undefined,
+      });
+      toast('渠道已复制');
+      onRefresh();
+    } catch (e) {
+      console.error('复制渠道失败:', e);
+      toast('复制渠道失败', 'error');
+    } finally {
+      setCloning(false);
+    }
+  }
+
   async function handleAddKeys() {
     const lines = newKeysText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     if (lines.length === 0) return;
@@ -603,6 +624,14 @@ function ChannelDetailPanel({
             title="编辑"
           >
             <Pencil className="h-4 w-4" />
+          </button>
+          <button
+            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
+            onClick={handleCloneEndpoint}
+            disabled={cloning}
+            title="复制渠道"
+          >
+            {cloning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Files className="h-4 w-4" />}
           </button>
           <button
             className="p-2 rounded-lg text-red-400 hover:text-red-500 hover:bg-red-500/10 transition-colors"
