@@ -532,14 +532,43 @@ pub async fn handle_models(
         .await
         .map_err(|e| ProxyError::ForwardFailed(format!("获取模型列表失败: {e}")))?;
 
-    let status = resp.status();
-    let body_bytes = resp.bytes().await.map_err(|e| {
-        ProxyError::ForwardFailed(format!("读取模型列表响应失败: {e}"))
-    })?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body_bytes = resp.bytes().await.unwrap_or_default();
+        return Ok((
+            axum::http::StatusCode::from_u16(status.as_u16()).unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            body_bytes,
+        ).into_response());
+    }
 
-    Ok((
-        axum::http::StatusCode::from_u16(status.as_u16()).unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
-        [(axum::http::header::CONTENT_TYPE, "application/json")],
-        body_bytes,
-    ).into_response())
+    // 解析并过滤，只保留 Claude/Anthropic 模型
+    let body: Value = resp.json().await.unwrap_or(json!({"data": []}));
+    let filtered_data: Vec<&Value> = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter(|m| {
+                    let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                    is_claude_model(id)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let result = json!({
+        "object": "list",
+        "data": filtered_data,
+    });
+
+    Ok(Json(result).into_response())
+}
+
+/// 判断模型 ID 是否为 Claude 系列
+fn is_claude_model(model_id: &str) -> bool {
+    let id = model_id.to_lowercase();
+    id.contains("claude")
+        || id.starts_with("anthropic/")
+        || id.starts_with("anthropic:")
 }
