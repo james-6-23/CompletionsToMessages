@@ -1,6 +1,6 @@
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import type { ModelStats } from '@/types/usage';
-import { fmtInt, fmtUsd } from './format';
+import { fmtInt, fmtDuration } from './format';
 
 interface Props {
   data: ModelStats[];
@@ -32,9 +32,11 @@ export function ModelStatsTable({ data, loading }: Props) {
           <TableRow>
             <TableHead>模型</TableHead>
             <TableHead className="text-right">请求数</TableHead>
-            <TableHead className="text-right">总 Tokens</TableHead>
-            <TableHead className="text-right">总成本</TableHead>
-            <TableHead className="text-right">平均成本</TableHead>
+            <TableHead className="text-right">Input</TableHead>
+            <TableHead className="text-right">Output</TableHead>
+            <TableHead className="text-right">缓存读取</TableHead>
+            <TableHead className="text-right">缓存创建</TableHead>
+            <TableHead className="text-right">平均耗时</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -42,9 +44,11 @@ export function ModelStatsTable({ data, loading }: Props) {
             <TableRow key={row.model}>
               <TableCell className="font-mono text-sm">{row.model}</TableCell>
               <TableCell className="text-right tabular-nums">{fmtInt(row.request_count)}</TableCell>
-              <TableCell className="text-right tabular-nums">{fmtInt(row.total_tokens)}</TableCell>
-              <TableCell className="text-right tabular-nums">{fmtUsd(row.total_cost, 4)}</TableCell>
-              <TableCell className="text-right tabular-nums">{fmtUsd(row.avg_cost_per_request, 4)}</TableCell>
+              <TableCell className="text-right tabular-nums">{fmtInt(row.input_tokens)}</TableCell>
+              <TableCell className="text-right tabular-nums">{fmtInt(row.output_tokens)}</TableCell>
+              <TableCell className="text-right tabular-nums">{fmtInt(row.cache_read_tokens)}</TableCell>
+              <TableCell className="text-right tabular-nums">{fmtInt(row.cache_creation_tokens)}</TableCell>
+              <TableCell className="text-right tabular-nums">{fmtDuration(Math.round(row.avg_latency_ms))}</TableCell>
             </TableRow>
           ))}
         </TableBody>

@@ -45,9 +45,12 @@ export interface PaginatedLogs {
 export interface ModelStats {
   model: string;
   request_count: number;
-  total_tokens: number;
   total_cost: string;
-  avg_cost_per_request: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  avg_latency_ms: number;
 }
 
 export interface ModelPricing {
