@@ -292,10 +292,20 @@ function ChannelDetailPanel({
   const [testingKeys, setTestingKeys] = useState<Set<string>>(new Set());
   const [testResults, setTestResults] = useState<Record<string, boolean | null>>({});
 
-  /* 模型列表（测试用） */
+  /* 模型列表（测试用）— 持久化到服务端数据库 */
   const [models, setModels] = useState<string[]>([]);
   const [testModel, setTestModel] = useState('');
   const [loadingModels, setLoadingModels] = useState(false);
+
+  // 初始化：从服务端加载缓存的模型列表和测试模型
+  useEffect(() => {
+    api.getSetting(`models_${endpoint.id}`).then(r => {
+      if (r.value) try { setModels(JSON.parse(r.value)); } catch { /* ignore */ }
+    }).catch(() => {});
+    api.getSetting(`testModel_${endpoint.id}`).then(r => {
+      if (r.value) setTestModel(r.value);
+    }).catch(() => {});
+  }, [endpoint.id]);
 
   /* Key 搜索过滤 */
   const [searchKey, setSearchKey] = useState('');
@@ -326,7 +336,11 @@ function ChannelDetailPanel({
       const resp = await api.getEndpointModels(endpoint.id);
       const ids = (resp.data || []).map((m: { id: string }) => m.id).sort();
       setModels(ids);
-      if (ids.length > 0 && !testModel) setTestModel(ids[0]);
+      api.setSetting(`models_${endpoint.id}`, JSON.stringify(ids)).catch(() => {});
+      if (ids.length > 0 && !testModel) {
+        setTestModel(ids[0]);
+        api.setSetting(`testModel_${endpoint.id}`, ids[0]).catch(() => {});
+      }
     } catch (e) {
       console.error('获取模型列表失败:', e);
     } finally {
@@ -428,13 +442,17 @@ function ChannelDetailPanel({
   async function handleTestKey(id: string) {
     setTestingKeys(prev => new Set(prev).add(id));
     setTestResults(prev => ({ ...prev, [id]: null }));
+    const modelName = testModel || '默认模型';
     try {
       const result = await api.testApiKey(id, testModel || undefined);
       setTestResults(prev => ({ ...prev, [id]: result.valid }));
-      toast(result.valid ? '密钥测试通过' : '密钥测试失败', result.valid ? 'success' : 'error');
+      toast(
+        result.valid ? `测试通过 [${modelName}]` : `测试失败 [${modelName}]`,
+        result.valid ? 'success' : 'error',
+      );
     } catch {
       setTestResults(prev => ({ ...prev, [id]: false }));
-      toast('密钥测试失败', 'error');
+      toast(`测试失败 [${modelName}]`, 'error');
     } finally {
       setTestingKeys(prev => { const s = new Set(prev); s.delete(id); return s; });
     }
@@ -579,7 +597,7 @@ function ChannelDetailPanel({
             {/* 测试模型选择 */}
             <div className="flex items-center gap-3 pt-1">
               <span className="text-xs font-medium text-muted-foreground shrink-0">测试模型:</span>
-              <Select value={testModel || undefined} onValueChange={setTestModel} onOpenChange={o => { if (o && models.length === 0) fetchModels(); }}>
+              <Select value={testModel || undefined} onValueChange={v => { setTestModel(v); api.setSetting(`testModel_${endpoint.id}`, v).catch(() => {}); }} onOpenChange={o => { if (o && models.length === 0) fetchModels(); }}>
                 <SelectTrigger className="w-64 h-8 text-sm font-mono font-semibold">
                   <SelectValue placeholder={loadingModels ? '加载中...' : '选择模型'} />
                 </SelectTrigger>

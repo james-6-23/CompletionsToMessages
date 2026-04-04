@@ -226,7 +226,7 @@ export function RequestLogTable({ timeRange, refreshMs, endpoints }: Props) {
                             {ch.name}
                           </span>
                           {log.key_id && keyIndexMap[log.key_id] && (
-                            <span className="inline-flex items-center px-1 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono text-[10px] font-bold">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono text-xs font-bold">
                               #{keyIndexMap[log.key_id]}
                             </span>
                           )}

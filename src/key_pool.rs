@@ -12,6 +12,38 @@ use crate::error::ProxyError;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+/// 标准化模型名，用于模糊匹配
+/// - 去掉 `anthropic/` 等供应商前缀
+/// - 将 `.` 替换为 `-`（如 `claude-haiku-4.5` → `claude-haiku-4-5`）
+/// - 转小写
+fn normalize_model(name: &str) -> String {
+    let mut s = name.to_lowercase();
+    // 去掉供应商前缀
+    if let Some(pos) = s.rfind('/') {
+        s = s[pos + 1..].to_string();
+    }
+    // 将 `.` 替换为 `-`
+    s = s.replace('.', "-");
+    s
+}
+
+/// 检查请求的模型名是否匹配端点模型列表中的某一项
+/// 支持：精确匹配、标准化后精确匹配、前缀匹配（带日期后缀的版本）
+fn model_matches(request_model: &str, endpoint_model: &str) -> bool {
+    if request_model == endpoint_model {
+        return true;
+    }
+    let req = normalize_model(request_model);
+    let ep = normalize_model(endpoint_model);
+    // 标准化后精确匹配
+    if req == ep {
+        return true;
+    }
+    // 前缀匹配：请求模型以端点模型为前缀（如 claude-haiku-4-5-20251001 以 claude-haiku-4-5 开头）
+    // 或反过来（端点列表里是完整名，请求用的是短名）
+    req.starts_with(&format!("{ep}-")) || ep.starts_with(&format!("{req}-"))
+}
+
 pub struct KeyPool {
     db: Arc<Database>,
     config: Arc<ProxyConfig>,
@@ -62,10 +94,10 @@ impl KeyPool {
             .filter(|k| self.circuit_breaker.is_available(&k.id))
             .collect();
 
-        // 按模型筛选：只保留端点模型列表为空（不限制）或明确包含请求模型的密钥
+        // 按模型筛选：只保留端点模型列表为空（不限制）或包含请求模型的密钥（模糊匹配）
         let model_filtered: Vec<_> = if let Some(m) = model {
             available_keys.iter()
-                .filter(|k| k.endpoint_models.is_empty() || k.endpoint_models.iter().any(|em| em == m))
+                .filter(|k| k.endpoint_models.is_empty() || k.endpoint_models.iter().any(|em| model_matches(m, em)))
                 .copied()
                 .collect()
         } else {
@@ -73,12 +105,25 @@ impl KeyPool {
         };
 
         let final_keys = if model_filtered.is_empty() && model.is_some() {
-            log::debug!(
-                "[cc-proxy] 无渠道明确支持模型 {}, 回退到全量可用密钥",
-                model.unwrap_or("?")
-            );
-            // 回退到熔断器过滤后的全量可用密钥
-            available_keys
+            // 检查是否所有渠道都配置了模型列表（即都在做模型限制）
+            let all_have_models = available_keys.iter().all(|k| !k.endpoint_models.is_empty());
+            if all_have_models {
+                // 所有渠道都配了模型列表但都不支持该模型，拒绝请求
+                return Err(ProxyError::Internal(format!(
+                    "没有渠道支持模型 {}，请检查渠道的模型配置",
+                    model.unwrap_or("?")
+                )));
+            }
+            // 存在未配置模型列表的渠道（不限制模型），回退到这些渠道
+            let unrestricted: Vec<_> = available_keys.iter()
+                .filter(|k| k.endpoint_models.is_empty())
+                .copied()
+                .collect();
+            if unrestricted.is_empty() {
+                available_keys
+            } else {
+                unrestricted
+            }
         } else {
             model_filtered
         };

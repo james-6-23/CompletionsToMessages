@@ -316,6 +316,37 @@ function AccessTokenCard({
           </div>
         </div>
 
+        {/* 支持的模型 */}
+        {token.channel_ids.length > 0 && (() => {
+          const allModels = new Set<string>();
+          token.channel_ids.forEach(cid => {
+            const ep = endpoints.find(e => e.id === cid);
+            if (ep) ep.models.forEach(m => allModels.add(m));
+          });
+          const hasUnrestricted = token.channel_ids.some(cid => {
+            const ep = endpoints.find(e => e.id === cid);
+            return ep && ep.models.length === 0;
+          });
+          if (allModels.size === 0 && !hasUnrestricted) return null;
+          return (
+            <div className="flex items-start gap-2">
+              <span className="text-xs text-muted-foreground shrink-0 pt-1">支持模型:</span>
+              <div className="flex flex-wrap gap-1">
+                {hasUnrestricted && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-md border border-emerald-500/20 bg-emerald-500/5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                    不限模型
+                  </span>
+                )}
+                {[...allModels].sort().map(m => (
+                  <span key={m} className="inline-flex items-center px-2 py-0.5 rounded-md border border-border/50 bg-muted/40 text-xs font-mono font-medium text-foreground">
+                    {m}
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* 编辑渠道绑定 */}
         {editingChannels && (
           <div className="space-y-3 pt-2 border-t border-border/50">

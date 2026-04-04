@@ -138,4 +138,8 @@ export const api = {
   deleteAccessToken: (id: string) => deleteJson<{ ok: boolean }>(`/api/access-tokens/${id}`),
   toggleAccessToken: (id: string, is_active: boolean) => putJson<{ ok: boolean }>(`/api/access-tokens/${id}/status`, { is_active }),
   updateAccessTokenChannels: (id: string, channel_ids: string[]) => putJson<{ ok: boolean }>(`/api/access-tokens/${id}/channels`, { channel_ids }),
+
+  // KV 设置
+  getSetting: (key: string) => fetchJson<{ key: string; value: string | null }>(`/api/settings/${encodeURIComponent(key)}`),
+  setSetting: (key: string, value: string) => putJson<{ ok: boolean }>(`/api/settings/${encodeURIComponent(key)}`, { value }),
 };

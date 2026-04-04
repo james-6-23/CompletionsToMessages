@@ -189,6 +189,41 @@ pub async fn get_config_info(
     })))
 }
 
+// ===== KV 设置 =====
+
+/// GET /api/settings/:key — 读取设置
+pub async fn get_setting(
+    State(state): State<AppState>,
+    Path(key): Path<String>,
+) -> Result<Json<Value>, ProxyError> {
+    let db = Arc::clone(&state.db);
+    let k = key.clone();
+    let val = tokio::task::spawn_blocking(move || db.get_setting(&k))
+        .await
+        .map_err(|e| ProxyError::Internal(format!("查询设置失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+    Ok(Json(json!({ "key": key, "value": val })))
+}
+
+/// PUT /api/settings/:key — 写入设置
+pub async fn set_setting(
+    State(state): State<AppState>,
+    Path(key): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ProxyError> {
+    let value = body.get("value")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let db = Arc::clone(&state.db);
+    let k = key.clone();
+    tokio::task::spawn_blocking(move || db.set_setting(&k, &value))
+        .await
+        .map_err(|e| ProxyError::Internal(format!("保存设置失败: {e}")))?
+        .map_err(|e| ProxyError::Internal(e))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
 // ===== 上游端点管理 =====
 
 /// 添加端点请求体

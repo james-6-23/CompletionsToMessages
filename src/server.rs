@@ -122,6 +122,7 @@ pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> 
         .route("/access-tokens/:id", delete(stats_api::delete_access_token))
         .route("/access-tokens/:id/status", put(stats_api::update_access_token_status))
         .route("/access-tokens/:id/channels", put(stats_api::update_access_token_channels))
+        .route("/settings/:key", get(stats_api::get_setting).put(stats_api::set_setting))
         .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth))
         .with_state(state.clone());
 
