@@ -119,10 +119,10 @@ function EndpointCard({
   const [editUrl, setEditUrl] = useState(endpoint.base_url);
   const [saving, setSaving] = useState(false);
 
-  /* 新增密钥 */
+  /* 新增密钥弹窗 */
   const [showAddKey, setShowAddKey] = useState(false);
-  const [newKey, setNewKey] = useState('');
-  const [newLabel, setNewLabel] = useState('');
+  const [newKeysText, setNewKeysText] = useState('');
+  const [adding, setAdding] = useState(false);
 
   /* Key 交互状态 */
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
@@ -165,18 +165,38 @@ function EndpointCard({
     }
   }
 
-  /* 添加密钥 */
-  async function handleAddKey() {
-    if (!newKey.trim()) return;
+  /* 批量添加密钥 */
+  async function handleAddKeys() {
+    const lines = newKeysText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length === 0) return;
+    setAdding(true);
     try {
-      await api.addApiKey({ endpoint_id: endpoint.id, api_key: newKey.trim(), label: newLabel.trim() });
-      setNewKey('');
-      setNewLabel('');
+      for (const line of lines) {
+        await api.addApiKey({ endpoint_id: endpoint.id, api_key: line, label: '' });
+      }
+      setNewKeysText('');
       setShowAddKey(false);
       onRefresh();
     } catch (e) {
       console.error('添加密钥失败:', e);
+    } finally {
+      setAdding(false);
     }
+  }
+
+  /* 文件上传密钥 */
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      if (text) {
+        setNewKeysText(prev => prev ? prev + '\n' + text.trim() : text.trim());
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   }
 
   /* 密钥操作 */
@@ -337,36 +357,47 @@ function EndpointCard({
               </Card>
             )}
 
-            {/* 添加密钥按钮 / 表单 */}
+            {/* 添加密钥按钮 */}
             <div className="flex items-center gap-3">
-              <Button size="sm" onClick={() => setShowAddKey(!showAddKey)}>
+              <Button size="sm" onClick={() => setShowAddKey(true)}>
                 <Plus className="h-4 w-4" /> 添加密钥
               </Button>
             </div>
 
+            {/* 添加密钥弹窗 */}
             {showAddKey && (
-              <Card className="border-border/50 bg-muted/30">
-                <CardContent className="p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row">
-                    <Input
-                      placeholder="API Key (sk-...)"
-                      value={newKey}
-                      onChange={e => setNewKey(e.target.value)}
-                      className="flex-1"
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowAddKey(false)}>
+                <div className="w-full max-w-lg mx-4 rounded-2xl border border-border bg-card shadow-xl" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between p-5 border-b border-border/50">
+                    <h3 className="text-sm font-semibold">为 {endpoint.name} 添加密钥</h3>
+                    <button onClick={() => setShowAddKey(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="p-5">
+                    <textarea
+                      placeholder="输入密钥，每行一个"
+                      value={newKeysText}
+                      onChange={e => setNewKeysText(e.target.value)}
+                      rows={8}
+                      className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm font-mono transition-all placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/10 resize-y"
                     />
-                    <Input
-                      placeholder="标签 (可选)"
-                      value={newLabel}
-                      onChange={e => setNewLabel(e.target.value)}
-                      className="w-48"
-                    />
+                  </div>
+                  <div className="flex items-center justify-between p-5 pt-0">
+                    <label className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-border bg-background text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer">
+                      上传文件
+                      <input type="file" accept=".txt,.csv,.key" className="hidden" onChange={handleFileUpload} />
+                    </label>
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={handleAddKey} disabled={!newKey.trim()}>确认添加</Button>
                       <Button size="sm" variant="outline" onClick={() => setShowAddKey(false)}>取消</Button>
+                      <Button size="sm" onClick={handleAddKeys} disabled={adding || !newKeysText.trim()}>
+                        {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        添加
+                      </Button>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             )}
 
             {/* 密钥列表 */}
