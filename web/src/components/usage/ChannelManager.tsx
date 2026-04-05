@@ -518,6 +518,8 @@ function ChannelDetailPanel({
       setTestResults(prev => ({ ...prev, [id]: result.valid }));
       if (result.valid) {
         toast(`测试通过 [${modelName}]`, 'success');
+        // 测试成功后刷新列表（后端已自动恢复密钥状态）
+        onRefresh();
       } else {
         const detail = result.error
           ? `${result.status || 'err'}: ${result.error.slice(0, 150)}`
@@ -534,6 +536,7 @@ function ChannelDetailPanel({
 
   /* 批量测试：并发 5 个一批，避免压垮上游 */
   const [batchTesting, setBatchTesting] = useState(false);
+  const [batchTestingInvalid, setBatchTestingInvalid] = useState(false);
   async function handleBatchTest() {
     const activeKeys = keys.filter(k => k.is_active);
     if (activeKeys.length === 0) { toast('没有有效密钥可测试', 'error'); return; }
@@ -564,6 +567,40 @@ function ChannelDetailPanel({
 
     setBatchTesting(false);
     toast(`批量测试完成 [${modelName}]：${passed} 通过，${failed} 失败`, passed > 0 ? 'success' : 'error');
+    onRefresh();
+  }
+
+  /* 批量验证无效密钥：测试通过自动恢复 */
+  async function handleBatchTestInvalid() {
+    const invalidKeys = keys.filter(k => !k.is_active);
+    if (invalidKeys.length === 0) { toast('没有无效密钥可验证', 'error'); return; }
+    const modelName = testModel || '默认模型';
+    setBatchTestingInvalid(true);
+    setTestResults({});
+    let restored = 0;
+    let stillInvalid = 0;
+    const CONCURRENCY = 5;
+
+    for (let i = 0; i < invalidKeys.length; i += CONCURRENCY) {
+      const batch = invalidKeys.slice(i, i + CONCURRENCY);
+      batch.forEach(k => setTestingKeys(prev => new Set(prev).add(k.id)));
+
+      const results = await Promise.allSettled(
+        batch.map(async k => {
+          const result = await api.testApiKey(k.id, testModel || undefined);
+          setTestResults(prev => ({ ...prev, [k.id]: result.valid }));
+          return result.valid;
+        })
+      );
+
+      batch.forEach(k => setTestingKeys(prev => { const s = new Set(prev); s.delete(k.id); return s; }));
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value) restored++; else stillInvalid++;
+      }
+    }
+
+    setBatchTestingInvalid(false);
+    toast(`无效密钥验证完成 [${modelName}]：${restored} 个已恢复，${stillInvalid} 个仍无效`, restored > 0 ? 'success' : 'error');
     onRefresh();
   }
 
@@ -972,10 +1009,22 @@ function ChannelDetailPanel({
           variant="outline"
           className="border-blue-300 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 h-8 gap-1.5 rounded-full px-4 text-xs font-semibold"
           onClick={handleBatchTest}
-          disabled={batchTesting || keys.filter(k => k.is_active).length === 0}
+          disabled={batchTesting || batchTestingInvalid || keys.filter(k => k.is_active).length === 0}
         >
           {batchTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />}
           {batchTesting ? '测试中...' : '批量测试'}
+        </Button>
+
+        {/* 验证无效密钥 */}
+        <Button
+          size="sm"
+          variant="outline"
+          className="border-amber-300 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 h-8 gap-1.5 rounded-full px-4 text-xs font-semibold"
+          onClick={handleBatchTestInvalid}
+          disabled={batchTesting || batchTestingInvalid || keys.filter(k => !k.is_active).length === 0}
+        >
+          {batchTestingInvalid ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+          {batchTestingInvalid ? '验证中...' : '验证无效'}
         </Button>
 
         {/* 删除失效密钥 */}
@@ -1054,10 +1103,10 @@ function ChannelDetailPanel({
                 </button>
                 <div className="border-t border-border/50 my-1" />
                 <button onClick={() => { setShowMoreMenu(false); handleBatchTest(); }} className="w-full px-3 py-2 text-left hover:bg-muted/60 flex items-center gap-2">
-                  <FlaskConical className="h-3.5 w-3.5" /> 验证所有密钥
+                  <FlaskConical className="h-3.5 w-3.5" /> 验证所有有效密钥
                 </button>
-                <button onClick={() => { setShowMoreMenu(false); /* 只测有效 */ const orig = handleBatchTest; orig(); }} className="w-full px-3 py-2 text-left hover:bg-muted/60 flex items-center gap-2">
-                  <FlaskConical className="h-3.5 w-3.5" /> 验证有效密钥
+                <button onClick={() => { setShowMoreMenu(false); handleBatchTestInvalid(); }} className="w-full px-3 py-2 text-left hover:bg-muted/60 flex items-center gap-2">
+                  <RotateCcw className="h-3.5 w-3.5" /> 验证无效密钥
                 </button>
               </div>
             </>

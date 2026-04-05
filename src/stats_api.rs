@@ -1014,6 +1014,15 @@ pub async fn test_key(
 
     match resp {
         Ok(r) if r.status().is_success() => {
+            // 测试成功：自动恢复为有效状态
+            let db = Arc::clone(&state.db);
+            let key_id = id.clone();
+            let _ = tokio::task::spawn_blocking(move || db.update_api_key_status(&key_id, true))
+                .await;
+            log::info!(
+                "[cc-proxy] 密钥 {} 测试通过，自动恢复为有效状态",
+                &id[..id.len().min(8)]
+            );
             Ok(Json(json!({"valid": true, "status": r.status().as_u16()})))
         }
         Ok(r) => {
