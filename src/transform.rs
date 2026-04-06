@@ -74,6 +74,7 @@ pub fn resolve_reasoning_effort(body: &Value) -> Option<&'static str> {
 /// Anthropic 请求 → OpenAI 请求
 ///
 /// `cache_key`: optional prompt_cache_key to inject for improved cache routing
+#[cfg(test)]
 pub fn anthropic_to_openai(body: Value, cache_key: Option<&str>) -> Result<Value, ProxyError> {
     let mut result = json!({});
 
@@ -186,7 +187,85 @@ pub fn anthropic_to_openai(body: Value, cache_key: Option<&str>) -> Result<Value
     Ok(result)
 }
 
-/// 转换单条消息到 OpenAI 格式（可能产生多条消息）
+/// Anthropic 请求 → OpenAI 请求（使用已缓存的 system + tools 前缀）
+///
+/// 与 `anthropic_to_openai` 功能相同，但 system messages 和 tools 由调用方提供（来自 PromptCache），
+/// 保证同一会话内这两部分的 JSON 字节完全一致，最大化上游 prompt cache 命中率。
+pub fn anthropic_to_openai_with_cached_prefix(
+    body: Value,
+    cached_system: &[Value],
+    cached_tools: &[Value],
+    cache_key: Option<&str>,
+) -> Result<Value, ProxyError> {
+    let mut result = json!({});
+
+    if let Some(model) = body.get("model").and_then(|m| m.as_str()) {
+        result["model"] = json!(model);
+    }
+
+    // 使用缓存的 system messages（字节稳定）
+    let mut messages: Vec<Value> = cached_system.to_vec();
+
+    // 转换 messages（每轮不同，不缓存）
+    if let Some(msgs) = body.get("messages").and_then(|m| m.as_array()) {
+        for msg in msgs {
+            let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("user");
+            let content = msg.get("content");
+            let converted = convert_message_to_openai(role, content)?;
+            messages.extend(converted);
+        }
+    }
+
+    result["messages"] = json!(messages);
+
+    // 转换参数
+    let model = body.get("model").and_then(|m| m.as_str()).unwrap_or("");
+    if let Some(v) = body.get("max_tokens") {
+        if is_openai_o_series(model) {
+            result["max_completion_tokens"] = v.clone();
+        } else {
+            result["max_tokens"] = v.clone();
+        }
+    }
+    if let Some(v) = body.get("temperature") {
+        result["temperature"] = v.clone();
+    }
+    if let Some(v) = body.get("top_p") {
+        result["top_p"] = v.clone();
+    }
+    if let Some(v) = body.get("stop_sequences") {
+        result["stop"] = v.clone();
+    }
+    if let Some(v) = body.get("stream") {
+        result["stream"] = v.clone();
+        if v.as_bool().unwrap_or(false) {
+            result["stream_options"] = json!({"include_usage": true});
+        }
+    }
+
+    // reasoning_effort
+    if supports_reasoning_effort(model) {
+        if let Some(effort) = resolve_reasoning_effort(&body) {
+            result["reasoning_effort"] = json!(effort);
+        }
+    }
+
+    // 使用缓存的 tools（字节稳定）
+    if !cached_tools.is_empty() {
+        result["tools"] = json!(cached_tools);
+    }
+
+    if let Some(v) = body.get("tool_choice") {
+        result["tool_choice"] = v.clone();
+    }
+
+    // 注入 prompt_cache_key
+    if let Some(key) = cache_key {
+        result["prompt_cache_key"] = json!(key);
+    }
+
+    Ok(result)
+}
 fn convert_message_to_openai(
     role: &str,
     content: Option<&Value>,

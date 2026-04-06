@@ -6,6 +6,7 @@
 use crate::{
     auth,
     error::{ProxyError, UpstreamHeaders},
+    prompt_cache,
     server::AppState,
     streaming, thinking, transform, usage,
 };
@@ -16,7 +17,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 /// 健康检查
 pub async fn health_check() -> (StatusCode, Json<Value>) {
@@ -34,11 +35,15 @@ fn is_retryable_status(status: u16) -> bool {
     status >= 500 || status == 401 || status == 402 || status == 429 || status == 529
 }
 
+/// 预编译正则（避免每次调用都编译）
+static CONTEXT_OVERFLOW_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(\d+)\s*\+\s*(\d+)\s*>\s*(\d+)").unwrap()
+});
+
 /// 解析上下文窗口溢出错误: "input length and `max_tokens` exceed context limit: X + Y > Z"
 /// 返回 (input_tokens, max_tokens, context_limit)
 fn parse_context_overflow(body: &str) -> Option<(u64, u64, u64)> {
-    let re = regex::Regex::new(r"(\d+)\s*\+\s*(\d+)\s*>\s*(\d+)").ok()?;
-    let caps = re.captures(body)?;
+    let caps = CONTEXT_OVERFLOW_RE.captures(body)?;
     let input = caps.get(1)?.as_str().parse::<u64>().ok()?;
     let max = caps.get(2)?.as_str().parse::<u64>().ok()?;
     let limit = caps.get(3)?.as_str().parse::<u64>().ok()?;
@@ -122,15 +127,35 @@ pub async fn handle_messages(
         request_id
     );
 
-    // 4. Anthropic → OpenAI 格式转换
-    let mut openai_body = transform::anthropic_to_openai(body, None)?;
+    // 4. Anthropic → OpenAI 格式转换（system+tools 走缓存，保证字节级稳定以提升上游 prompt cache 命中率）
+    let prefix_result = state.prompt_cache.get_or_convert(&body, |b| {
+        (
+            prompt_cache::convert_system_to_openai(b),
+            prompt_cache::convert_tools_to_openai(b),
+        )
+    });
+
+    if prefix_result.hit {
+        log::debug!(
+            "[cc-proxy] prompt cache 命中, key={}, rid={}",
+            prefix_result.cache_key,
+            request_id
+        );
+    }
+
+    let mut openai_body = transform::anthropic_to_openai_with_cached_prefix(
+        body,
+        &prefix_result.system_messages,
+        &prefix_result.tools,
+        Some(&prefix_result.cache_key),
+    )?;
 
     // 5. 发送上游请求（含重试逻辑）
     //
-    // 对非流式请求：遇到可重试错误（5xx / 429 / 529 / 网络错误）时最多重试 2 次，
-    //               每次重试选取新的 API Key，指数退避 500ms → 1000ms。
-    // 对流式请求：不重试（流一旦开始无法回滚）。
-    let mut max_attempts = if is_stream { 1 } else { 3 };
+    // 遇到可重试错误（5xx / 401 / 402 / 429 / 529 / 网络错误）时重试，
+    // 每次重试选取新的 API Key，指数退避 500ms → 1000ms。
+    // 流式请求在收到成功响应前也可以安全重试（此时尚未向客户端发送任何数据）。
+    let mut max_attempts: usize = 5;
     let backoff_base_ms: u64 = 500;
 
     let mut last_error: Option<ProxyError> = None;
@@ -175,8 +200,8 @@ pub async fn handle_messages(
         last_key_id = key_id.clone();
         last_channel_id = channel_id.clone();
 
-        // 首次选 key 时，应用端点自定义的 max_retries（非流式）
-        if attempt == 0 && !is_stream && ep_max_retries > 0 {
+        // 首次选 key 时，应用端点自定义的 max_retries
+        if attempt == 0 && ep_max_retries > 0 {
             max_attempts = ep_max_retries as usize;
         }
 
@@ -449,12 +474,14 @@ pub async fn handle_messages(
         // 创建 usage 收集器和 done 信号
         let usage_collector = streaming::new_usage_collector();
         let (done_tx, done_rx) = streaming::new_done_signal();
+        let stream_max_duration = state.config.timeouts.stream_max_duration_secs;
 
         let response = handle_streaming_response(
             resp,
             usage_collector.clone(),
             Some(done_tx),
             upstream_headers_for_resp,
+            stream_max_duration,
         )
         .await;
 
@@ -462,8 +489,11 @@ pub async fn handle_messages(
         let stream_channel_id = last_channel_id.clone();
         let stream_key_id = last_key_id.clone().unwrap_or_default();
         tokio::spawn(async move {
-            // 等待流结束信号，最多 5 分钟超时兜底
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(300), done_rx).await;
+            // 等待流结束信号，超时 = 流式总时长限制 + 30s 安全余量
+            let usage_timeout = stream_max_duration + 30;
+            if tokio::time::timeout(std::time::Duration::from_secs(usage_timeout), done_rx).await.is_err() {
+                log::warn!("[cc-proxy] Stream usage collection timed out after {usage_timeout}s for request {rid}, tokens may be inaccurate");
+            }
             let latency_ms = start.elapsed().as_millis() as u64;
             let collected = usage_collector
                 .lock()
@@ -517,9 +547,10 @@ async fn handle_streaming_response(
     usage_collector: streaming::StreamUsageCollector,
     done_signal: Option<tokio::sync::oneshot::Sender<()>>,
     upstream_headers: axum::http::HeaderMap,
+    stream_max_duration_secs: u64,
 ) -> Result<axum::response::Response, ProxyError> {
     let stream = resp.bytes_stream();
-    let sse_stream = streaming::create_anthropic_sse_stream(stream, usage_collector, done_signal);
+    let sse_stream = streaming::create_anthropic_sse_stream(stream, usage_collector, done_signal, stream_max_duration_secs);
 
     let mut headers = axum::http::HeaderMap::new();
     headers.insert(

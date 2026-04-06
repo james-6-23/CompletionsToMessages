@@ -9,6 +9,7 @@ mod database;
 mod error;
 mod handler;
 mod key_pool;
+mod prompt_cache;
 mod server;
 mod sse;
 mod stats_api;

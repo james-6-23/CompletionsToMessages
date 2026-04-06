@@ -140,6 +140,7 @@ pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
     stream: impl Stream<Item = Result<Bytes, E>> + Send + 'static,
     usage_collector: StreamUsageCollector,
     done_signal: Option<tokio::sync::oneshot::Sender<()>>,
+    stream_max_duration_secs: u64,
 ) -> impl Stream<Item = Result<Bytes, std::io::Error>> + Send {
     async_stream::stream! {
         let mut done_tx = done_signal;
@@ -157,21 +158,53 @@ pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
 
         // 流式空闲超时：90 秒内无数据则中断
         let idle_timeout = std::time::Duration::from_secs(90);
+        // 流式总时长限制
+        let stream_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(stream_max_duration_secs);
 
         loop {
-            let chunk = match tokio::time::timeout(idle_timeout, stream.next()).await {
+            // 取 idle_timeout 和剩余总时长的较小值
+            let remaining = stream_deadline.duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                log::warn!("[cc-proxy] 流式响应总时长超时 ({stream_max_duration_secs}s)");
+                let error_event = json!({
+                    "type": "error",
+                    "error": {"type": "stream_duration_timeout", "message": format!("Stream duration timeout ({stream_max_duration_secs}s)")}
+                });
+                let sse_data = format!("event: error\ndata: {}\n\n",
+                    serde_json::to_string(&error_event).unwrap_or_default());
+                yield Ok(Bytes::from(sse_data));
+                if let Some(tx) = done_tx.take() {
+                    let _ = tx.send(());
+                }
+                break;
+            }
+            let effective_timeout = idle_timeout.min(remaining);
+
+            let chunk = match tokio::time::timeout(effective_timeout, stream.next()).await {
                 Ok(Some(chunk)) => chunk,
                 Ok(None) => break, // 流正常结束
                 Err(_) => {
-                    // 空闲超时
-                    log::warn!("[cc-proxy] 流式响应空闲超时 (90s)");
-                    let error_event = json!({
-                        "type": "error",
-                        "error": {"type": "idle_timeout", "message": "Stream idle timeout (90s)"}
-                    });
-                    let sse_data = format!("event: error\ndata: {}\n\n",
-                        serde_json::to_string(&error_event).unwrap_or_default());
-                    yield Ok(Bytes::from(sse_data));
+                    // 判断是空闲超时还是总时长超时
+                    let is_duration_timeout = tokio::time::Instant::now() >= stream_deadline;
+                    if is_duration_timeout {
+                        log::warn!("[cc-proxy] 流式响应总时长超时 ({stream_max_duration_secs}s)");
+                        let error_event = json!({
+                            "type": "error",
+                            "error": {"type": "stream_duration_timeout", "message": format!("Stream duration timeout ({stream_max_duration_secs}s)")}
+                        });
+                        let sse_data = format!("event: error\ndata: {}\n\n",
+                            serde_json::to_string(&error_event).unwrap_or_default());
+                        yield Ok(Bytes::from(sse_data));
+                    } else {
+                        log::warn!("[cc-proxy] 流式响应空闲超时 (90s)");
+                        let error_event = json!({
+                            "type": "error",
+                            "error": {"type": "idle_timeout", "message": "Stream idle timeout (90s)"}
+                        });
+                        let sse_data = format!("event: error\ndata: {}\n\n",
+                            serde_json::to_string(&error_event).unwrap_or_default());
+                        yield Ok(Bytes::from(sse_data));
+                    }
                     // 发送 done 信号，避免 usage 记录任务永远等待
                     if let Some(tx) = done_tx.take() {
                         let _ = tx.send(());
@@ -656,7 +689,7 @@ mod tests {
             input.as_bytes().to_vec(),
         ))]);
         let collector = new_usage_collector();
-        let converted = create_anthropic_sse_stream(upstream, collector, None);
+        let converted = create_anthropic_sse_stream(upstream, collector, None, 300);
         let chunks: Vec<_> = converted.collect().await;
 
         let merged = chunks

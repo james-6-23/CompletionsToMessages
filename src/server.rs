@@ -4,6 +4,7 @@ use crate::config::ProxyConfig;
 use crate::database::Database;
 use crate::handler;
 use crate::key_pool::KeyPool;
+use crate::prompt_cache::{self, PromptCache};
 use crate::stats_api;
 use axum::{
     extract::{DefaultBodyLimit, Request, State},
@@ -27,6 +28,8 @@ pub struct AppState {
     pub db: Arc<Database>,
     pub key_pool: Arc<KeyPool>,
     pub admin_secret: Option<String>,
+    /// 提示前缀缓存：稳定 system+tools 转换结果，提升上游 prompt cache 命中率
+    pub prompt_cache: Arc<PromptCache>,
 }
 
 /// 管理接口鉴权中间件
@@ -100,6 +103,7 @@ pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> 
         db,
         key_pool,
         admin_secret: admin_secret.clone(),
+        prompt_cache: prompt_cache::create_prompt_cache(),
     };
 
     // 管理 API 路由（受 ADMIN_SECRET 保护）

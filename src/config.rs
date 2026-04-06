@@ -58,6 +58,9 @@ pub struct TimeoutConfig {
     /// 请求总超时（秒）
     #[serde(default = "default_600")]
     pub request_timeout_secs: u64,
+    /// 流式响应最大持续时间（秒），超过则中断流
+    #[serde(default = "default_300")]
+    pub stream_max_duration_secs: u64,
 }
 
 fn default_listen() -> String {
@@ -76,10 +79,15 @@ fn default_600() -> u64 {
     600
 }
 
+fn default_300() -> u64 {
+    300
+}
+
 impl Default for TimeoutConfig {
     fn default() -> Self {
         Self {
             request_timeout_secs: default_600(),
+            stream_max_duration_secs: default_300(),
         }
     }
 }
