@@ -19,7 +19,9 @@ services:
       - perplexity-svc
 
   perplexity-svc:
-    image: shancw/perplexity-mcp:latest
+    build:
+      context: .
+      dockerfile: perplexity.Dockerfile
     container_name: perplexity-svc
     restart: unless-stopped
     # 不对外暴露端口，仅在内部网络可访问
