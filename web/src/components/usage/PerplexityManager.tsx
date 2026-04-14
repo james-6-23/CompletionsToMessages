@@ -143,7 +143,7 @@ function AddAccountForm({ onAdd }: { onAdd: () => void }) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id.trim() || !csrf.trim() || !session.trim()) {
-      toast.error('请填写所有字段');
+      toast('请填写所有字段', 'error');
       return;
     }
     setLoading(true);
@@ -154,14 +154,14 @@ function AddAccountForm({ onAdd }: { onAdd: () => void }) {
         session_token: session.trim(),
       });
       if (res.status === 'ok') {
-        toast.success('账号添加成功');
+        toast('账号添加成功', 'success');
         setId(''); setCsrf(''); setSession('');
         onAdd();
       } else {
-        toast.error(res.message ?? '添加失败');
+        toast(res.message ?? '添加失败', 'error');
       }
     } catch {
-      toast.error('添加失败，请检查服务连接');
+      toast('添加失败，请检查服务连接', 'error');
     } finally {
       setLoading(false);
     }
@@ -237,13 +237,13 @@ export function PerplexityManager() {
         const msgs: Record<string, string> = {
           enable: '已启用', disable: '已禁用', remove: '已删除', reset: '已重置',
         };
-        toast.success(msgs[action] ?? '操作成功');
+        toast(msgs[action] ?? '操作成功', 'success');
         await refresh();
       } else {
-        toast.error(res.message ?? '操作失败');
+        toast(res.message ?? '操作失败', 'error');
       }
     } catch {
-      toast.error('操作失败，请检查服务连接');
+      toast('操作失败，请检查服务连接', 'error');
     }
   };
 
