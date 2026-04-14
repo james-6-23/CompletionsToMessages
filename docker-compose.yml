@@ -10,9 +10,9 @@ services:
     environment:
       - RUST_LOG=info
       - ADMIN_SECRET=${ADMIN_SECRET}
-      # Perplexity 搜索集成（内部服务地址）
+      # Perplexity 搜索集成（内部服务地址，无需用户配置）
       - PPLX_SERVICE_URL=http://perplexity-svc:8000
-      - PPLX_ADMIN_TOKEN=${PPLX_ADMIN_TOKEN:-}
+      - PPLX_ADMIN_TOKEN=${PPLX_ADMIN_TOKEN:-pplx-internal-admin-token}
     networks:
       - internal
     depends_on:
@@ -25,7 +25,7 @@ services:
     # 不对外暴露端口，仅在内部网络可访问
     environment:
       - MCP_TOKEN=${PPLX_MCP_TOKEN:-sk-pplx-internal}
-      - PPLX_ADMIN_TOKEN=${PPLX_ADMIN_TOKEN:-}
+      - PPLX_ADMIN_TOKEN=${PPLX_ADMIN_TOKEN:-pplx-internal-admin-token}
       - SOCKS_PROXY=${SOCKS_PROXY:-}
     volumes:
       # 持久化 Perplexity 账号配置
