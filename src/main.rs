@@ -9,6 +9,7 @@ mod database;
 mod error;
 mod handler;
 mod key_pool;
+mod perplexity_proxy;
 mod prompt_cache;
 mod server;
 mod sse;

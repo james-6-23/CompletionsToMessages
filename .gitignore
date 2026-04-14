@@ -5,6 +5,11 @@
 /cc-switch/
 /codexProxy-rs/
 /claude-code-sourcemap-main/
+/perplexity-ai/
+/ab7613d5c01c8299770cec7e7f4025b445f66639*
+
+# Perplexity 账号配置（含敏感 token，不纳入版本控制）
+/perplexity-data/token_pool_config.json
 
 # SQLite 数据库（运行时生成）
 *.db

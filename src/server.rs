@@ -4,6 +4,7 @@ use crate::config::ProxyConfig;
 use crate::database::Database;
 use crate::handler;
 use crate::key_pool::KeyPool;
+use crate::perplexity_proxy;
 use crate::prompt_cache::{self, PromptCache};
 use crate::stats_api;
 use axum::{
@@ -30,6 +31,10 @@ pub struct AppState {
     pub admin_secret: Option<String>,
     /// 提示前缀缓存：稳定 system+tools 转换结果，提升上游 prompt cache 命中率
     pub prompt_cache: Arc<PromptCache>,
+    /// Perplexity 服务内部 URL（如 http://perplexity-svc:8000）
+    pub pplx_service_url: Option<String>,
+    /// Perplexity 服务管理员 Token（对应 PPLX_ADMIN_TOKEN）
+    pub pplx_admin_token: Option<String>,
 }
 
 /// 管理接口鉴权中间件
@@ -93,8 +98,14 @@ pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> 
 
     let db = Arc::new(db);
     let admin_secret = std::env::var("ADMIN_SECRET").ok().filter(|s| !s.is_empty());
+    let pplx_service_url = std::env::var("PPLX_SERVICE_URL").ok().filter(|s| !s.is_empty());
+    let pplx_admin_token = std::env::var("PPLX_ADMIN_TOKEN").ok().filter(|s| !s.is_empty());
     let config = Arc::new(config.clone());
     let key_pool = Arc::new(KeyPool::new(db.clone(), config.clone()));
+
+    if let Some(ref url) = pplx_service_url {
+        log::info!("[cc-proxy] Perplexity 集成已启用: {url}");
+    }
 
     let state = AppState {
         config: config.clone(),
@@ -104,6 +115,8 @@ pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> 
         key_pool,
         admin_secret: admin_secret.clone(),
         prompt_cache: prompt_cache::create_prompt_cache(),
+        pplx_service_url,
+        pplx_admin_token,
     };
 
     // 管理 API 路由（受 ADMIN_SECRET 保护）
@@ -157,6 +170,9 @@ pub async fn run(config: ProxyConfig) -> Result<(), Box<dyn std::error::Error>> 
             "/settings/:key",
             get(stats_api::get_setting).put(stats_api::set_setting),
         )
+        // Perplexity 号池管理（代理到内部 perplexity-svc）
+        .route("/perplexity/status", get(perplexity_proxy::get_status))
+        .route("/perplexity/pool/:action", post(perplexity_proxy::pool_action))
         .route_layer(middleware::from_fn_with_state(state.clone(), admin_auth))
         .with_state(state.clone());
 

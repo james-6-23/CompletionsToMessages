@@ -1,0 +1,16 @@
+{
+  "heart_beat": {
+    "enable": false,
+    "question": "今天是几号？",
+    "interval": 6,
+    "tg_bot_token": "",
+    "tg_chat_id": ""
+  },
+  "fallback": {
+    "fallback_to_auto": true
+  },
+  "incognito": {
+    "enabled": false
+  },
+  "tokens": []
+}

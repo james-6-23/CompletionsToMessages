@@ -1,4 +1,4 @@
-import type { UsageSummary, DailyStats, PaginatedLogs, ModelStats, ModelPricing, ApiKey, Endpoint, TestKeyResult, AccessToken, AccessTokenCreated } from '@/types/usage';
+import type { UsageSummary, DailyStats, PaginatedLogs, ModelStats, ModelPricing, ApiKey, Endpoint, TestKeyResult, AccessToken, AccessTokenCreated, PplxPoolStatus, PplxActionResult } from '@/types/usage';
 
 const BASE = '';
 
@@ -149,4 +149,9 @@ export const api = {
   // KV 设置
   getSetting: (key: string) => fetchJson<{ key: string; value: string | null }>(`/api/settings/${encodeURIComponent(key)}`),
   setSetting: (key: string, value: string) => putJson<{ ok: boolean }>(`/api/settings/${encodeURIComponent(key)}`, { value }),
+
+  // Perplexity 号池管理
+  pplxStatus: () => fetchJson<PplxPoolStatus>('/api/perplexity/status'),
+  pplxPoolAction: (action: string, body?: object) =>
+    postJson<PplxActionResult>(`/api/perplexity/pool/${action}`, body ?? {}),
 };

@@ -115,3 +115,31 @@ export interface AccessToken {
 export interface AccessTokenCreated extends AccessToken {
   token: string;
 }
+
+// ==================== Perplexity 号池类型 ====================
+
+export interface PplxClientStatus {
+  id: string;
+  available: boolean;
+  enabled: boolean;
+  state: string; // "normal" | "offline" | "downgrade" | "unknown"
+  fail_count: number;
+  next_available_at: string | null;
+  last_heartbeat_at: string | null;
+  request_count: number;
+  weight: number;
+  pro_fail_count: number;
+}
+
+export interface PplxPoolStatus {
+  total: number;
+  available: number;
+  mode: string;
+  clients: PplxClientStatus[];
+}
+
+export interface PplxActionResult {
+  status: string;
+  message?: string;
+  data?: unknown;
+}
